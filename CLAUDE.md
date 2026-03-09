@@ -26,11 +26,19 @@ Platform → Bureau → Tenant → Employee
 - Tenant isolation enforced at application AND database level (Postgres RLS)
 
 ## Tech stack
-- Fastify + TypeScript (API)
-- PostgreSQL 16 (database)
+- Fastify + TypeScript (API) — lives in /api
+- PostgreSQL 16 (database) — local install on port 5432, DB name: doubtfire_dev
 - BullMQ + Redis (async queues)
-- React + Vite + Tailwind (frontend)
-- AWS ECS Fargate (hosting — local development first)
+- React + Vite 7 + Tailwind (frontend) — lives in /client
+- Railway (API hosting), Vercel (frontend hosting)
+
+## Deployment
+- Frontend: Vercel — auto-deploys from master branch
+  - Root Directory set to /client in Vercel dashboard
+  - client/vercel.json handles SPA routing rewrites
+  - Live at homestak.co.nz
+- API: Railway — config in api/railway.json
+  - Root Directory must be set to /api in Railway dashboard
 
 ## Brand
 - Primary colour: #39175D (deep purple)
@@ -50,9 +58,28 @@ Platform → Bureau → Tenant → Employee
 - Rules use 5-level inheritance: Jurisdiction → Platform → Bureau → Tenant → Employee
 
 ## Reference documents in this repo
-- /docs/Payroll_Engine_Architecture_v0.2.docx — full architecture spec
+- /docs/Payroll_Engine_Architecture_v2_with_Leave_Engine.docx — full architecture spec
 - /docs/PayrollEngine_ArchitectureDiagrams.html — visual diagrams
-- /docs/reference/PayrollDashboard.jsx — existing UI prototype to migrate
+- /docs/reference/PayrollDashboard (1).jsx — UI prototype (already deployed to Vercel)
+
+## What has been built
+### Phase 1 — Complete
+- /api — Fastify + TypeScript API scaffold
+  - src/server.ts + app.ts — entry point and app factory
+  - src/config.ts — env var config (requires JWT_SECRET, others have defaults)
+  - src/db/client.ts — pg Pool with query() and withTransaction() helpers
+  - src/db/migrate.ts — SQL migration runner (npm run migrate)
+  - src/middleware — authenticate, errorHandler, tenantScope
+  - src/queues — BullMQ pay run queue
+  - src/rules/engine.ts — rule resolver stub (5-level inheritance, Phase 2)
+  - src/models/common.ts — shared TypeScript types
+  - GET /health — DB connectivity check
+- /client — React + Vite 7 + Tailwind frontend
+  - PayrollDashboard.jsx deployed and live (full UI prototype)
+  - Tailwind configured with brand colours and Barlow font
+- railway.json — Railway deployment config
+- client/vercel.json — Vercel SPA routing config
 
 ## Current build phase
-Phase 1 — Project scaffolding, database foundation, frontend shell
+Phase 2 — Database Foundation (all migration files)
+Next: create SQL migration files for all core v1 tables
