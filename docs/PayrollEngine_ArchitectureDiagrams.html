@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payroll Engine - Architecture Diagrams v0.2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&display=swap');
+:root {
+  --brand:#39175D; --brand-dark:#2d1048; --brand-mid:#6b3fa0;
+  --brand-light:#f0ebf8; --brand-faint:#faf8fd;
+  --tx:#1a1625; --tm:#5a5270; --tt:#9b96ad;
+  --bg:#f4f2f8; --white:#ffffff; --border:#e2ddf0;
+  --green:#1a7a3c; --green-bg:#eaf5ee;
+  --amber:#8a5a00; --amber-bg:#fdf4e3;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--tx);line-height:1.6;}
+.site-header{background:var(--brand);position:sticky;top:0;z-index:100;box-shadow:0 2px 20px rgba(57,23,93,.3);}
+.header-inner{display:flex;align-items:center;justify-content:space-between;padding:14px 32px;}
+.header-logo{display:flex;align-items:center;gap:12px;}
+.logo-mark{width:36px;height:36px;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.25);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff;}
+.header-title{color:#fff;font-weight:700;font-size:15px;}
+.header-sub{color:rgba(255,255,255,.5);font-size:11.5px;margin-top:1px;}
+.header-badge{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.9);padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600;}
+.nav-bar{background:var(--brand-dark);padding:0 32px;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;}
+.nav-bar::-webkit-scrollbar{display:none;}
+.nav-btn{background:none;border:none;color:rgba(255,255,255,.5);padding:10px 13px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;}
+.nav-btn:hover{color:rgba(255,255,255,.85);}
+.nav-btn.active{color:#fff;border-bottom-color:rgba(255,255,255,.6);font-weight:600;}
+.main{max-width:1080px;margin:0 auto;padding:36px 32px;}
+.section{display:none;}
+.section.active{display:block;animation:fadeIn .2s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+.page-title{margin-bottom:24px;}
+.page-title h1{font-size:24px;font-weight:800;color:var(--tx);font-family:'Barlow Condensed',sans-serif;letter-spacing:-.3px;}
+.page-title p{font-size:13.5px;color:var(--tm);margin-top:5px;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px;}
+.ov-card{background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:16px 18px;cursor:pointer;transition:all .15s;}
+.ov-card:hover{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-light);transform:translateY(-1px);}
+.ov-num{font-size:10.5px;font-weight:700;color:var(--brand);letter-spacing:.8px;text-transform:uppercase;margin-bottom:5px;}
+.ov-title{font-size:13.5px;font-weight:700;color:var(--tx);line-height:1.3;margin-bottom:5px;}
+.ov-desc{font-size:12px;color:var(--tt);line-height:1.5;}
+.card{background:var(--white);border:1px solid var(--border);border-radius:14px;box-shadow:0 2px 12px rgba(57,23,93,.06);margin-bottom:28px;overflow:hidden;}
+.card-hd{background:linear-gradient(135deg,var(--brand),var(--brand-mid));padding:20px 26px;display:flex;align-items:flex-start;gap:14px;}
+.card-num{width:34px;height:34px;flex-shrink:0;background:rgba(255,255,255,.2);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#fff;font-family:'Barlow Condensed',sans-serif;}
+.card-title{color:#fff;font-weight:700;font-size:17px;letter-spacing:-.2px;line-height:1.3;}
+.card-sub{color:rgba(255,255,255,.6);font-size:12.5px;margin-top:2px;}
+.card-body{padding:24px;}
+.tag{display:inline-block;padding:3px 9px;border-radius:5px;font-size:10.5px;font-weight:700;letter-spacing:.3px;margin-right:5px;margin-bottom:10px;}
+.tb{background:var(--brand-light);color:var(--brand);}
+.tg{background:var(--green-bg);color:var(--green);}
+.ta{background:var(--amber-bg);color:var(--amber);}
+.dw{background:var(--brand-faint);border:1px solid var(--border);border-radius:10px;padding:24px 16px;margin-bottom:20px;overflow-x:auto;display:flex;justify-content:center;min-height:80px;align-items:center;}
+.dw svg{max-width:100%;height:auto;}
+.dw .err{color:#8a1f1f;font-size:13px;font-style:italic;}
+.note{background:var(--brand-light);border-left:3px solid var(--brand);border-radius:0 8px 8px 0;padding:13px 16px;font-size:13px;color:var(--tm);line-height:1.65;}
+.note strong{color:var(--brand);font-weight:700;}
+.note code{background:rgba(57,23,93,.09);padding:1px 5px;border-radius:3px;font-size:12px;color:var(--brand);}
+.loading{color:var(--tt);font-size:13px;font-style:italic;}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="header-logo">
+      <div class="logo-mark">P</div>
+      <div>
+        <div class="header-title">Payroll Engine - Architecture Diagrams</div>
+        <div class="header-sub">v0.2 Internal Engineering Reference - Pay The Nanny</div>
+      </div>
+    </div>
+    <div class="header-badge">9 Diagrams</div>
+  </div>
+  <nav class="nav-bar">
+    <button class="nav-btn active" onclick="show('s0',this)">Overview</button>
+    <button class="nav-btn" onclick="show('s1',this)">1. System Architecture</button>
+    <button class="nav-btn" onclick="show('s2',this)">2. Domain Hierarchy</button>
+    <button class="nav-btn" onclick="show('s3',this)">3. Identity and Access</button>
+    <button class="nav-btn" onclick="show('s4',this)">4. Portal Architecture</button>
+    <button class="nav-btn" onclick="show('s5',this)">5. Rules Engine</button>
+    <button class="nav-btn" onclick="show('s6',this)">6. Calculation Flow</button>
+    <button class="nav-btn" onclick="show('s7',this)">7. Data Model</button>
+    <button class="nav-btn" onclick="show('s8',this)">8. Reporting</button>
+    <button class="nav-btn" onclick="show('s9',this)">9. Scope Resolution</button>
+  </nav>
+</header>
+
+<main class="main">
+
+<section id="s0" class="section active">
+  <div class="page-title">
+    <h1>Architecture Diagrams</h1>
+    <p>Visual reference for the Payroll Engine platform - multi-tenant, bureau-aware, rules-driven.</p>
+  </div>
+  <div class="grid">
+    <div class="ov-card" onclick="showN('s1',1)"><div class="ov-num">Diagram 01</div><div class="ov-title">High-Level System Architecture</div><div class="ov-desc">Portals, API, domain services, async queues, data layer, and external integrations.</div></div>
+    <div class="ov-card" onclick="showN('s2',2)"><div class="ov-num">Diagram 02</div><div class="ov-title">Domain Entity Hierarchy</div><div class="ov-desc">Platform to Bureau to Tenant to Employee relationships and supporting entities.</div></div>
+    <div class="ov-card" onclick="showN('s3',3)"><div class="ov-num">Diagram 03</div><div class="ov-title">Identity and Access Model</div><div class="ov-desc">Users, memberships, portal links, and how access scope is resolved.</div></div>
+    <div class="ov-card" onclick="showN('s4',4)"><div class="ov-num">Diagram 04</div><div class="ov-title">Portal Architecture</div><div class="ov-desc">Three portals sharing one backend API with separate scope per portal.</div></div>
+    <div class="ov-card" onclick="showN('s5',5)"><div class="ov-num">Diagram 05</div><div class="ov-title">Rules Engine Architecture</div><div class="ov-desc">Five-level rule inheritance from jurisdiction defaults to employee overrides.</div></div>
+    <div class="ov-card" onclick="showN('s6',6)"><div class="ov-num">Diagram 06</div><div class="ov-title">Payroll Calculation Flow</div><div class="ov-desc">End-to-end sequence from pay run creation through to payslip generation.</div></div>
+    <div class="ov-card" onclick="showN('s7',7)"><div class="ov-num">Diagram 07</div><div class="ov-title">Payroll Data Model</div><div class="ov-desc">Key table relationships: pay runs, items, line items, snapshots, leave.</div></div>
+    <div class="ov-card" onclick="showN('s8',8)"><div class="ov-num">Diagram 08</div><div class="ov-title">Reporting Architecture</div><div class="ov-desc">How pay_run_line_items powers reporting at every level.</div></div>
+    <div class="ov-card" onclick="showN('s9',9)"><div class="ov-num">Diagram 09</div><div class="ov-title">Request Scope Resolution</div><div class="ov-desc">From login through scope resolution to permission enforcement.</div></div>
+  </div>
+</section>
+
+<section id="s1" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">01</div><div><div class="card-title">High-Level System Architecture</div><div class="card-sub">Frontend portals, API layer, domain services, data layer, external integrations</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Architecture</span><span class="tag tg">v1 Scope</span>
+      <div class="dw" id="d1"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Architecture pattern:</strong> Modular monolith on AWS ECS Fargate. All three portals share a single Fastify API - access is determined by the resolved scope context on each request. Async work (calculation, payslips, filing) runs through BullMQ queues backed by ElastiCache. PostgreSQL with RLS enforces strict tenant isolation at the database level. v1 ships only the Platform Admin Portal; all backend endpoints support all three portals from day one.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s2" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">02</div><div><div class="card-title">Domain Entity Hierarchy</div><div class="card-sub">Platform to Bureau to Tenant to Employee and supporting domain entities</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Domain Model</span>
+      <div class="dw" id="d2"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Key isolation rule:</strong> Employees belong to Tenants, not Bureaus. Bureau is a management and access layer only. All payroll records are always tenant-scoped. Leave Profiles group leave rules by cohort - employees reference a profile, not individual rules, so policy changes propagate across all affected employees simultaneously.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s3" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">03</div><div><div class="card-title">Identity and Access Model</div><div class="card-sub">Users, memberships, portal links, scope resolution</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Access Control</span><span class="tag ta">Security Critical</span>
+      <div class="dw" id="d3"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Critical distinction:</strong> A User and an Employee are not the same entity. An employee only gets portal access when a tenant admin explicitly creates an <code>employee_portal_link</code> - never automatic. A single user can hold memberships at multiple levels simultaneously. Platform-scope users bypass RLS; all other scopes are enforced independently by both application logic and Postgres RLS policies.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s4" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">04</div><div><div class="card-title">Portal Architecture</div><div class="card-sub">Three portals, one backend, scope-determined access</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Frontend</span><span class="tag tg">API-First</span>
+      <div class="dw" id="d4"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>One API, three experiences:</strong> All portals call the same REST endpoints. The scope resolver determines what data each request can access. A <code>platform_admin</code> and a <code>client_owner</code> calling the same endpoint receive different scoped results. Activating the Client and Employee portals in Phases 2 and 3 is a frontend routing change - not a new backend system.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s5" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">05</div><div><div class="card-title">Rules Engine Architecture</div><div class="card-sub">Five-level inheritance, version control, evaluation context</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Rules Engine</span><span class="tag ta">Core Logic</span>
+      <div class="dw" id="d5"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Client-invisible rules:</strong> Clients never interact with the rules engine directly. Their payroll settings and leave policies in the Client Portal map to Level 4 rule overrides behind the scenes. Level 1 rules (PAYE, KiwiSaver minimums) are locked. Every pay run stores the exact <code>rule_version_ids</code> used, making all historical payslips exactly reproducible.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s6" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">06</div><div><div class="card-title">Payroll Calculation Flow</div><div class="card-sub">End-to-end sequence from pay run creation to payslip delivery</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Sequence</span><span class="tag tg">Async and Idempotent</span>
+      <div class="dw" id="d6"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Idempotency guarantee:</strong> All writes use <code>X-Idempotency-Key</code>. The BullMQ job_id is derived from the pay_run_id - re-queuing is a no-op. If calculation fails for individual employees, their item is marked <code>status=error</code> and the run continues. Once finalised, the pay run is permanently locked. Corrections are new adjustment pay runs. Calculation snapshots are immutable from creation.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s7" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">07</div><div><div class="card-title">Payroll Data Model Overview</div><div class="card-sub">Key table relationships across the payroll domain</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Data Model</span><span class="tag ta">Schema Reference</span>
+      <div class="dw" id="d7"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Three-layer payroll output:</strong> Each calculated employee produces a <code>calculation_snapshot</code> (immutable audit record), a <code>pay_run_item</code> (bank payment reconciliation summary), and multiple <code>pay_run_line_items</code> (one per component, used for payslips and reports). Leave balances are never stored - they are computed from the append-only <code>leave_transactions</code> ledger.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s8" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">08</div><div><div class="card-title">Reporting Architecture</div><div class="card-sub">pay_run_line_items as the universal reporting layer</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Reporting</span><span class="tag tg">Multi-level</span>
+      <div class="dw" id="d8"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Why pay_run_line_items:</strong> All reporting queries run against the structured <code>pay_run_line_items</code> table rather than parsing raw JSONB snapshots. Each row is a single component with a typed <code>code</code> field (e.g. <code>PAYE</code>, <code>KIWISAVER_EE</code>, <code>ORDINARY_HOURS</code>). Every report type becomes a simple, fast, well-indexed SQL query.</div>
+    </div>
+  </div>
+</section>
+
+<section id="s9" class="section">
+  <div class="card">
+    <div class="card-hd"><div class="card-num">09</div><div><div class="card-title">Request Scope Resolution</div><div class="card-sub">From login to permission enforcement, step by step</div></div></div>
+    <div class="card-body">
+      <span class="tag tb">Auth Flow</span><span class="tag ta">Security Critical</span>
+      <div class="dw" id="d9"><span class="loading">Loading diagram...</span></div>
+      <div class="note"><strong>Defence in depth:</strong> Scope resolution happens at three independent layers - JWT validation (cryptographic), scope context from membership tables (application logic), and Postgres RLS (database-level). A bug in application logic cannot leak cross-tenant data if RLS is correctly configured. The scope context is passed to every service method and query, ensuring no code path can accidentally access out-of-scope records.</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#f0ebf8',
+    primaryTextColor: '#1a1625',
+    primaryBorderColor: '#39175D',
+    lineColor: '#6b3fa0',
+    secondaryColor: '#e8f0fc',
+    tertiaryColor: '#eaf5ee',
+    background: '#ffffff',
+    mainBkg: '#f0ebf8',
+    nodeBorder: '#39175D',
+    clusterBkg: '#f7f4fb',
+    clusterBorder: '#c9bce0',
+    titleColor: '#39175D',
+    edgeLabelBackground: '#ffffff',
+    fontFamily: 'Barlow, sans-serif',
+    fontSize: '13px',
+    actorBorder: '#39175D',
+    actorBkg: '#f0ebf8',
+    actorTextColor: '#1a1625',
+    actorLineColor: '#6b3fa0',
+    signalColor: '#6b3fa0',
+    signalTextColor: '#1a1625',
+    labelBoxBkgColor: '#faf8fd',
+    labelBoxBorderColor: '#e2ddf0',
+    loopTextColor: '#5a5270',
+    noteBkgColor: '#fdf4e3',
+    noteBorderColor: '#8a5a00',
+    attributeBackgroundColorEven: '#faf8fd',
+    attributeBackgroundColorOdd: '#f0ebf8'
+  },
+  flowchart: { curve: 'basis', padding: 20 },
+  sequence: { actorMargin: 50, messageMargin: 35, mirrorActors: false },
+  er: { diagramPadding: 30, layoutDirection: 'TB', minEntityWidth: 100, minEntityHeight: 75, entityPadding: 15 }
+});
+
+const DIAGRAMS = {
+  d1: `graph TB
+    subgraph FE [FRONTEND PORTALS]
+      PA[Platform Admin /admin v1]
+      CP[Client Portal /client Phase 2]
+      EP[Employee Portal /employee Phase 3]
+    end
+    subgraph API [API LAYER]
+      GW[API Gateway Auth Rate Limiting]
+      SC[Scope Resolver]
+    end
+    subgraph CORE [CORE DOMAIN SERVICES]
+      PR[Payroll Service]
+      RE[Rules Engine]
+      CE[Calculation Engine]
+      LE[Leave Engine]
+      EM[Employee Service]
+    end
+    subgraph ASYNC [ASYNC LAYER BullMQ Redis]
+      CQ[Calculation Queue]
+      PQ[Payslip Queue]
+      FQ[Filing Queue]
+    end
+    subgraph DATA [DATA LAYER]
+      PG[PostgreSQL 16 RLS RDS]
+      S3[S3 Versioned PDFs Exports]
+      RD[ElastiCache Redis]
+    end
+    subgraph EXT [EXTERNAL INTEGRATIONS]
+      IRD[IRD Payday Filing NZ]
+      ATO[ATO Single Touch Payroll AU]
+      BNK[Bank Payment Files]
+      WH[Outbound Webhooks]
+    end
+    PA & CP & EP --> GW
+    GW --> SC
+    SC --> PR & RE & EM
+    PR --> CE
+    CE --> RE & LE
+    PR & CE --> CQ
+    CQ --> PQ
+    CQ --> FQ
+    PR & CE & LE & EM --> PG
+    PQ --> S3
+    FQ --> IRD & ATO & BNK
+    PR --> WH
+    CQ & PQ & FQ --> RD
+    style FE fill:#f0ebf8,stroke:#39175D,stroke-width:2px
+    style API fill:#ede8f4,stroke:#6b3fa0,stroke-width:2px
+    style CORE fill:#e8f0fc,stroke:#2a4a9a,stroke-width:2px
+    style ASYNC fill:#fdf4e3,stroke:#8a5a00,stroke-width:2px
+    style DATA fill:#eaf5ee,stroke:#1a7a3c,stroke-width:2px
+    style EXT fill:#fdeaea,stroke:#8a1f1f,stroke-width:2px`,
+
+  d2: `erDiagram
+    BUREAU {
+      uuid id PK
+      string name
+      bool is_active
+    }
+    TENANT {
+      uuid id PK
+      uuid bureau_id FK
+      string name
+      string jurisdiction
+    }
+    EMPLOYEE {
+      uuid id PK
+      uuid tenant_id FK
+      uuid leave_profile_id FK
+      uuid pay_schedule_id FK
+      string status
+    }
+    PAY_SCHEDULE {
+      uuid id PK
+      uuid tenant_id FK
+      string frequency
+    }
+    LEAVE_PROFILE {
+      uuid id PK
+      string name
+      string jurisdiction
+    }
+    LEAVE_PROFILE_RULES {
+      uuid id PK
+      uuid leave_profile_id FK
+      string leave_type_code
+      string pay_method
+      decimal accrual_rate
+    }
+    PAY_RUN {
+      uuid id PK
+      uuid tenant_id FK
+      date period_start
+      string status
+    }
+    PAY_RUN_ITEM {
+      uuid id PK
+      uuid pay_run_id FK
+      uuid employee_id FK
+      decimal gross_pay
+      decimal net_pay
+    }
+    CALCULATION_SNAPSHOT {
+      uuid id PK
+      uuid pay_run_item_id FK
+      jsonb inputs
+      jsonb outputs
+      jsonb rule_versions_used
+    }
+    BUREAU ||--o{ TENANT : manages
+    TENANT ||--o{ EMPLOYEE : employs
+    TENANT ||--o{ PAY_SCHEDULE : defines
+    TENANT ||--o{ PAY_RUN : runs
+    PAY_RUN ||--o{ PAY_RUN_ITEM : contains
+    PAY_RUN_ITEM ||--|| CALCULATION_SNAPSHOT : produces
+    EMPLOYEE ||--o{ PAY_RUN_ITEM : "appears in"
+    EMPLOYEE }o--|| LEAVE_PROFILE : "assigned to"
+    EMPLOYEE }o--|| PAY_SCHEDULE : follows
+    LEAVE_PROFILE ||--o{ LEAVE_PROFILE_RULES : contains`,
+
+  d3: `flowchart TD
+    U[USER\\nEmail and Auth Provider]
+    BM[bureau_memberships\\nbureau_owner bureau_admin\\nbureau_payroll_officer bureau_readonly]
+    TM[tenant_memberships\\nclient_owner client_payroll_admin\\nclient_manager client_readonly]
+    EPL[employee_portal_links\\nemployee_self_service only\\nScoped to own records only]
+    PS[PLATFORM SCOPE\\nSees all bureaus and tenants\\nBypasses RLS]
+    BS[BUREAU SCOPE\\nbureau_id set\\nCross-tenant within bureau\\nRLS enforced per tenant]
+    TS[TENANT SCOPE\\ntenant_id set\\nSingle tenant only\\nRLS enforced]
+    ES[EMPLOYEE SCOPE\\nemployee_id and tenant_id set\\nOwn records only]
+    U -->|platform role assigned directly| PS
+    U -->|via bureau_memberships| BM --> BS
+    U -->|via tenant_memberships| TM --> TS
+    U -->|via employee_portal_links| EPL --> ES
+    style U fill:#f0ebf8,stroke:#39175D,stroke-width:2px
+    style PS fill:#e8f0fc,stroke:#2a4a9a,stroke-width:2px
+    style BS fill:#fdf4e3,stroke:#8a5a00,stroke-width:2px
+    style TS fill:#eaf5ee,stroke:#1a7a3c,stroke-width:2px
+    style ES fill:#f0ebf8,stroke:#39175D,stroke-width:2px
+    style BM fill:#ede8f4,stroke:#6b3fa0
+    style TM fill:#ede8f4,stroke:#6b3fa0
+    style EPL fill:#ede8f4,stroke:#6b3fa0`,
+
+  d4: `flowchart TD
+    subgraph P1 [PLATFORM ADMIN PORTAL /admin v1]
+      P1A[Rules Engine Config]
+      P1B[Bureau and Tenant Management]
+      P1C[User Management]
+      P1D[Compliance Tools]
+      P1E[System Audit Logs]
+    end
+    subgraph P2 [CLIENT PORTAL /client Phase 2]
+      P2A[Employee Management]
+      P2B[Pay Runs and Approval]
+      P2C[Payroll Settings]
+      P2D[Reports and Exports]
+    end
+    subgraph P3 [EMPLOYEE PORTAL /employee Phase 3]
+      P3A[My Payslips]
+      P3B[Leave Balances]
+      P3C[Submit Leave and Timesheets]
+      P3D[Profile and Bank Details]
+    end
+    subgraph SHARED [SHARED BACKEND API Fastify TypeScript]
+      AUTH[Auth Middleware JWT and API Keys]
+      SCOPE[Scope Resolver]
+      PERM[Permission Check Role Templates]
+      SVC[Domain Services]
+    end
+    P1 & P2 & P3 --> AUTH
+    AUTH --> SCOPE --> PERM --> SVC
+    style P1 fill:#e8f0fc,stroke:#2a4a9a,stroke-width:2px
+    style P2 fill:#fdf4e3,stroke:#8a5a00,stroke-width:2px
+    style P3 fill:#eaf5ee,stroke:#1a7a3c,stroke-width:2px
+    style SHARED fill:#f0ebf8,stroke:#39175D,stroke-width:2px`,
+
+  d5: `flowchart TD
+    subgraph L1 [LEVEL 1 - JURISDICTION DEFAULTS - Locked]
+      J1[NZ PAYE tables ACC Levy KiwiSaver minimums]
+      J2[AU PAYG withholding Superannuation 11pct Medicare]
+    end
+    subgraph L2 [LEVEL 2 - PLATFORM RULES]
+      P1[Default rates caps and floors platform policy]
+    end
+    subgraph L3 [LEVEL 3 - BUREAU DEFAULTS]
+      B1[Bureau employment templates and leave profiles]
+    end
+    subgraph L4 [LEVEL 4 - TENANT POLICY SETTINGS]
+      T1[Pay schedules leave profile assignment]
+      T2[Expense policies benefit settings]
+      T3[Shown as Settings in client portal not as rules]
+    end
+    subgraph L5 [LEVEL 5 - EMPLOYEE OVERRIDES - Elevated access required]
+      E1[Individual KiwiSaver rate higher leave entitlement]
+    end
+    subgraph RES [RULE RESOLVER at Calculation Time]
+      RC[Load evaluation context employee gross jurisdiction date]
+      RV[Walk chain L1 through L5 last applicable wins]
+      RR[Return resolved rules with version IDs for snapshot]
+    end
+    L1 --> L2 --> L3 --> L4 --> L5 --> RC --> RV --> RR
+    style L1 fill:#fdeaea,stroke:#8a1f1f,stroke-width:2px
+    style L2 fill:#f0ebf8,stroke:#39175D,stroke-width:2px
+    style L3 fill:#fdf4e3,stroke:#8a5a00,stroke-width:2px
+    style L4 fill:#e8f0fc,stroke:#2a4a9a,stroke-width:2px
+    style L5 fill:#eaf5ee,stroke:#1a7a3c,stroke-width:2px
+    style RES fill:#ede8f4,stroke:#6b3fa0,stroke-width:2px`,
+
+  d6: `sequenceDiagram
+    actor Admin as Platform Admin
+    participant API as API Layer
+    participant Q as BullMQ Queue
+    participant CE as Calculation Engine
+    participant RE as Rules Engine
+    participant LE as Leave Engine
+    participant DB as PostgreSQL
+    participant PS as Payslip Service
+    Admin->>API: POST /v1/pay-runs
+    API->>DB: Check idempotency key
+    API->>DB: INSERT pay_run status=draft
+    API-->>Admin: 201 Created
+    Admin->>API: POST /v1/pay-runs/id/calculate
+    API->>Q: Enqueue job id=pay_run_id
+    API->>DB: UPDATE status=calculating
+    API-->>Admin: 202 Accepted
+    loop For each employee
+      Q->>CE: Process employee
+      CE->>DB: Load timesheets leave variable_pay_items
+      CE->>RE: Resolve rules for employee and jurisdiction
+      RE->>DB: Walk inheritance chain L1 to L5
+      RE-->>CE: Resolved rules with version IDs
+      CE->>LE: Calculate leave pay
+      LE-->>CE: Leave amount and method used
+      CE->>CE: Compute gross pay
+      CE->>CE: Apply PAYE PAYG tax rules
+      CE->>CE: Apply KiwiSaver Super ACC
+      CE->>DB: INSERT calculation_snapshot IMMUTABLE
+      CE->>DB: INSERT pay_run_item
+      CE->>DB: INSERT pay_run_line_items one per component
+      CE->>DB: INSERT leave_transactions accrual
+    end
+    Q->>DB: UPDATE status=review
+    Q-->>Admin: Notify pay run ready
+    Admin->>API: POST /v1/pay-runs/id/approve
+    API->>DB: UPDATE status=approved
+    Admin->>API: POST /v1/pay-runs/id/finalise
+    API->>DB: UPDATE status=finalised LOCKED
+    API->>Q: Enqueue payslip and filing jobs
+    Q->>PS: Generate payslip PDFs
+    PS->>DB: Read pay_run_line_items
+    PS-->>Admin: Payslips ready`,
+
+  d7: `erDiagram
+    TENANTS {
+      uuid id PK
+      uuid bureau_id FK
+      string jurisdiction
+    }
+    EMPLOYEES {
+      uuid id PK
+      uuid tenant_id FK
+      uuid leave_profile_id FK
+      string tax_code
+    }
+    LEAVE_PROFILES {
+      uuid id PK
+      string name
+      string jurisdiction
+    }
+    LEAVE_PROFILE_RULES {
+      uuid id PK
+      uuid leave_profile_id FK
+      string leave_type_code
+      string pay_method
+    }
+    LEAVE_TRANSACTIONS {
+      uuid id PK
+      uuid employee_id FK
+      string leave_type_code
+      decimal hours_delta
+      decimal awe_value
+    }
+    VARIABLE_PAY_ITEMS {
+      uuid id PK
+      uuid employee_id FK
+      uuid pay_run_id FK
+      string item_type
+      bool is_taxable
+      decimal amount
+    }
+    PAY_RUNS {
+      uuid id PK
+      uuid tenant_id FK
+      date period_start
+      string status
+    }
+    PAY_RUN_ITEMS {
+      uuid id PK
+      uuid pay_run_id FK
+      uuid employee_id FK
+      decimal gross_pay
+      decimal net_pay
+    }
+    PAY_RUN_LINE_ITEMS {
+      uuid id PK
+      uuid pay_run_item_id FK
+      string code
+      decimal amount
+      bool is_taxable
+    }
+    CALCULATION_SNAPSHOTS {
+      uuid id PK
+      uuid pay_run_item_id FK
+      jsonb inputs
+      jsonb outputs
+      jsonb rule_versions_used
+    }
+    TENANTS ||--o{ EMPLOYEES : employs
+    TENANTS ||--o{ PAY_RUNS : runs
+    LEAVE_PROFILES ||--o{ LEAVE_PROFILE_RULES : contains
+    EMPLOYEES }o--|| LEAVE_PROFILES : uses
+    EMPLOYEES ||--o{ LEAVE_TRANSACTIONS : accrues
+    EMPLOYEES ||--o{ VARIABLE_PAY_ITEMS : receives
+    PAY_RUNS ||--o{ PAY_RUN_ITEMS : generates
+    PAY_RUN_ITEMS ||--o{ PAY_RUN_LINE_ITEMS : "expands to"
+    PAY_RUN_ITEMS ||--|| CALCULATION_SNAPSHOTS : produces`,
+
+  d8: `flowchart TD
+    subgraph SRC [SOURCE OF TRUTH]
+      PRLI[pay_run_line_items - one row per component per employee per run]
+      LT[leave_transactions - append-only leave ledger]
+      PRI[pay_run_items - gross paye net summary]
+    end
+    subgraph PL [PLATFORM LEVEL REPORTS]
+      R1[Total payroll by bureau]
+      R2[PAYE collected platform-wide]
+      R3[Compliance status]
+    end
+    subgraph BL [BUREAU LEVEL REPORTS]
+      R4[Payroll summary per tenant]
+      R5[Leave liability across bureau]
+      R6[IRD and ATO filing status]
+    end
+    subgraph TL [TENANT LEVEL REPORTS]
+      R7[Employee earnings summary]
+      R8[PAYE and PAYG report]
+      R9[Leave balance sheet]
+    end
+    subgraph EL [EMPLOYEE LEVEL REPORTS]
+      R10[Own payslip history]
+      R11[YTD earnings]
+      R12[Leave balance and history]
+    end
+    subgraph EXP [EXPORT FORMATS]
+      E1[IRD Payday Filing XML]
+      E2[ATO STP JSON]
+      E3[Bank Payment CSV]
+      E4[Payslip PDFs S3]
+      E5[Payroll Summary XLSX]
+    end
+    PRLI --> R1 & R4 & R7 & R8
+    PRLI --> R2
+    PRLI --> R10 & R11
+    LT --> R5 & R9 & R12
+    PRI --> E3
+    PRLI --> E1 & E2 & E4 & E5
+    style SRC fill:#f0ebf8,stroke:#39175D,stroke-width:2px
+    style PL fill:#e8f0fc,stroke:#2a4a9a,stroke-width:1px
+    style BL fill:#fdf4e3,stroke:#8a5a00,stroke-width:1px
+    style TL fill:#eaf5ee,stroke:#1a7a3c,stroke-width:1px
+    style EL fill:#f0ebf8,stroke:#39175D,stroke-width:1px
+    style EXP fill:#ede8f4,stroke:#6b3fa0,stroke-width:2px`,
+
+  d9: `flowchart TD
+    START([User makes a request])
+    AUTH{Valid JWT or API Key?}
+    R1([403 Unauthorized])
+    CHK1{Has platform role?}
+    CHK2{Has bureau membership?}
+    CHK3{Has tenant membership?}
+    CHK4{Has portal link?}
+    R2([403 Forbidden no valid scope])
+    PS[PLATFORM SCOPE\\nAll bureaus and tenants\\nBypasses RLS]
+    BS[BUREAU SCOPE\\nbureau_id set\\nCross-tenant within bureau\\nRLS enforced per tenant]
+    TS[TENANT SCOPE\\ntenant_id set\\nSingle tenant only\\nRLS applied]
+    ES[EMPLOYEE SCOPE\\nemployee_id and tenant_id set\\nOwn records only]
+    PERM{Role permits this endpoint?}
+    EXEC[Execute service with scope context]
+    RESP([Return scoped response])
+    R3([403 Insufficient Permissions])
+    START --> AUTH
+    AUTH -->|Invalid| R1
+    AUTH -->|Valid| CHK1
+    CHK1 -->|Yes| PS
+    CHK1 -->|No| CHK2
+    CHK2 -->|Yes| BS
+    CHK2 -->|No| CHK3
+    CHK3 -->|Yes| TS
+    CHK3 -->|No| CHK4
+    CHK4 -->|Yes| ES
+    CHK4 -->|No| R2
+    PS & BS & TS & ES --> PERM
+    PERM -->|Allowed| EXEC --> RESP
+    PERM -->|Denied| R3
+    style PS fill:#e8f0fc,stroke:#2a4a9a,stroke-width:2px
+    style BS fill:#fdf4e3,stroke:#8a5a00,stroke-width:2px
+    style TS fill:#eaf5ee,stroke:#1a7a3c,stroke-width:2px
+    style ES fill:#f0ebf8,stroke:#39175D,stroke-width:2px
+    style R1 fill:#fdeaea,stroke:#8a1f1f
+    style R2 fill:#fdeaea,stroke:#8a1f1f
+    style R3 fill:#fdeaea,stroke:#8a1f1f
+    style RESP fill:#eaf5ee,stroke:#1a7a3c`
+};
+
+// Track which diagrams have been rendered
+const rendered = {};
+
+async function renderDiagram(id) {
+  if (rendered[id]) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  const src = DIAGRAMS[id];
+  if (!src) return;
+  try {
+    const { svg } = await mermaid.render('mg_' + id, src);
+    el.innerHTML = svg;
+    rendered[id] = true;
+  } catch(e) {
+    el.innerHTML = '<span class="err">Diagram error: ' + e.message + '</span>';
+    console.error(id, e);
+  }
+}
+
+function show(id, btn) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (btn) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Render the diagram for this section
+  const num = id.replace('s','');
+  if (num && num !== '0') renderDiagram('d' + num);
+}
+
+function showN(id, idx) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const btns = document.querySelectorAll('.nav-btn');
+  btns.forEach(b => b.classList.remove('active'));
+  if (btns[idx]) btns[idx].classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const num = id.replace('s','');
+  if (num && num !== '0') renderDiagram('d' + num);
+}
+
+// Pre-render diagram 1 on load since it's shown first when navigating
+window.addEventListener('load', () => {
+  // Don't auto-render - let user navigate to each diagram
+  // This avoids any race conditions on load
+});
+</script>
+</body>
+</html>
