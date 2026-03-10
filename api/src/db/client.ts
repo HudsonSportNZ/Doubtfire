@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, QueryResultRow } from 'pg';
 import { config } from '../config';
 
 export const pool = new Pool({
@@ -19,7 +19,7 @@ pool.on('error', (err) => {
 /**
  * Execute a query with automatic connection release.
  */
-export async function query<T = Record<string, unknown>>(
+export async function query<T extends QueryResultRow = Record<string, unknown>>(
   sql: string,
   params?: unknown[],
 ): Promise<T[]> {
