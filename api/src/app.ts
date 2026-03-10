@@ -12,12 +12,16 @@ declare module '@fastify/jwt' {
   interface FastifyJWT {
     payload: {
       sub: string;
+      email: string;
+      name: string;
       tenantId?: string;
       bureauId?: string;
       role: string;
     };
     user: {
       sub: string;
+      email: string;
+      name: string;
       tenantId?: string;
       bureauId?: string;
       role: string;
@@ -41,7 +45,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ── Security plugins ────────────────────────────────────────────────────────
   await fastify.register(helmet);
   await fastify.register(cors, {
-    origin: config.env === 'production' ? false : true,
+    origin: config.auth.allowedOrigins,
+    credentials: true,
   });
   await fastify.register(rateLimit, {
     max: 200,

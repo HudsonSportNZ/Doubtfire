@@ -29,6 +29,10 @@ export const config = {
 
   auth: {
     jwtSecret: required('JWT_SECRET'),
+    allowedOrigins: optional(
+      'ALLOWED_ORIGINS',
+      'http://localhost:5173',
+    ).split(','),
   },
 
   platform: {
