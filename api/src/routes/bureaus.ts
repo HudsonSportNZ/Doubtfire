@@ -24,12 +24,9 @@ const updateBureauSchema = z.object({
 });
 
 const createTenantSchema = z.object({
-  name: z.string().min(1).max(255),
-  slug: z
-    .string()
-    .min(1)
-    .max(100)
-    .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
+  name:         z.string().min(1).max(255),
+  slug:         z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
+  jurisdiction: z.enum(['NZ', 'AU'], { message: 'Jurisdiction must be NZ or AU' }),
 });
 
 interface BureauRow {
@@ -50,6 +47,7 @@ interface TenantRow {
   name: string;
   slug: string;
   status: string;
+  jurisdiction: string | null;
   created_at: string;
 }
 
@@ -181,7 +179,7 @@ export async function bureauRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const { name, slug } = parsed.data;
+    const { name, slug, jurisdiction } = parsed.data;
 
     const slugCheck = await query<{ id: string }>(
       `SELECT id FROM tenants WHERE slug = $1`,
@@ -196,9 +194,9 @@ export async function bureauRoutes(fastify: FastifyInstance): Promise<void> {
     const id = uuidv4();
 
     const rows = await query<TenantRow>(
-      `INSERT INTO tenants (id, bureau_id, name, slug) VALUES ($1, $2, $3, $4)
-       RETURNING id, bureau_id, name, slug, status, created_at`,
-      [id, bureauId, name, slug],
+      `INSERT INTO tenants (id, bureau_id, name, slug, jurisdiction) VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, bureau_id, name, slug, status, jurisdiction, created_at`,
+      [id, bureauId, name, slug, jurisdiction],
     );
 
     const responseBody = rows[0];
@@ -225,7 +223,7 @@ export async function bureauRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const rows = await query<TenantRow>(
-      `SELECT id, bureau_id, name, slug, status, created_at
+      `SELECT id, bureau_id, name, slug, status, jurisdiction, created_at
        FROM tenants WHERE bureau_id = $1 ORDER BY created_at DESC`,
       [bureauId],
     );

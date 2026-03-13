@@ -7,7 +7,6 @@ import { authenticate } from '../middleware/authenticate';
 const createPayScheduleSchema = z.object({
   name:         z.string().min(1).max(255),
   frequency:    z.enum(['weekly', 'fortnightly', 'monthly', 'one_off']),
-  jurisdiction: z.enum(['NZ', 'AU']),
   period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'period_start must be YYYY-MM-DD'),
   // period_end required only for one_off; auto-calculated for recurring
   period_end:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -18,21 +17,22 @@ const createPayScheduleSchema = z.object({
 );
 
 const updateTenantSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  status: z.enum(['active', 'suspended', 'closed']).optional(),
+  name:         z.string().min(1).max(255).optional(),
+  status:       z.enum(['active', 'suspended', 'closed']).optional(),
+  jurisdiction: z.enum(['NZ', 'AU']).optional(),
 });
 
 const createEmployeeSchema = z.object({
   first_name:      z.string().min(1).max(100),
   last_name:       z.string().min(1).max(100),
-  jurisdiction:    z.enum(['NZ', 'AU']),
+  // jurisdiction is derived from the employer (tenant) — not passed by the client
   start_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'start_date must be YYYY-MM-DD'),
   date_of_birth:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // TODO Phase 6: encrypt tax_identifier and bank_account at app layer before storage
   tax_identifier:  z.string().max(20).optional(),
   bank_account:    z.string().max(50).optional(),
   leave_profile_id: z.string().uuid().optional(),
-  pay_schedule_id:  z.string().uuid().optional(),
+  pay_schedule_id:  z.string().uuid({ message: 'A pay schedule is required' }),
 });
 
 const addJurisdictionSchema = z.object({
@@ -48,6 +48,7 @@ interface TenantRow {
   name: string;
   slug: string;
   status: string;
+  jurisdiction: string | null;
   created_at: string;
 }
 
@@ -130,7 +131,7 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
 
     const tenantRows = await query<TenantRow>(
-      `SELECT id, bureau_id, name, slug, status, created_at FROM tenants WHERE id = $1`,
+      `SELECT id, bureau_id, name, slug, status, jurisdiction, created_at FROM tenants WHERE id = $1`,
       [id],
     );
     if (tenantRows.length === 0) {
@@ -181,11 +182,11 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const { name, status } = parsed.data;
+    const { name, status, jurisdiction } = parsed.data;
 
-    if (!name && !status) {
+    if (!name && !status && !jurisdiction) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'At least one field (name, status) is required' },
+        error: { code: 'VALIDATION_ERROR', message: 'At least one field is required' },
       });
     }
 
@@ -194,19 +195,14 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
     const params: unknown[] = [];
     let paramIndex = 1;
 
-    if (name !== undefined) {
-      updates.push(`name = $${paramIndex++}`);
-      params.push(name);
-    }
-    if (status !== undefined) {
-      updates.push(`status = $${paramIndex++}`);
-      params.push(status);
-    }
+    if (name         !== undefined) { updates.push(`name = $${paramIndex++}`);         params.push(name); }
+    if (status       !== undefined) { updates.push(`status = $${paramIndex++}`);       params.push(status); }
+    if (jurisdiction !== undefined) { updates.push(`jurisdiction = $${paramIndex++}`); params.push(jurisdiction); }
     params.push(id);
 
     const rows = await query<TenantRow>(
       `UPDATE tenants SET ${updates.join(', ')} WHERE id = $${paramIndex}
-       RETURNING id, bureau_id, name, slug, status, created_at`,
+       RETURNING id, bureau_id, name, slug, status, jurisdiction, created_at`,
       params,
     );
 
@@ -316,9 +312,17 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
     const cached = await checkIdempotency(idempotencyKey, 'POST', path);
     if (cached) return reply.status(cached.status_code).send(cached.response);
 
-    const tenantRows = await query<{ id: string }>(`SELECT id FROM tenants WHERE id = $1`, [tenantId]);
-    if (tenantRows.length === 0) {
+    const empTenantRows = await query<{ id: string; jurisdiction: string | null }>(
+      `SELECT id, jurisdiction FROM tenants WHERE id = $1`, [tenantId],
+    );
+    if (empTenantRows.length === 0) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Tenant not found' } });
+    }
+    const empJurisdiction = empTenantRows[0].jurisdiction;
+    if (!empJurisdiction) {
+      return reply.status(400).send({
+        error: { code: 'NO_JURISDICTION', message: 'This employer has no jurisdiction set. Edit the employer and set NZ or AU first.' },
+      });
     }
 
     const parsed = createEmployeeSchema.safeParse(request.body);
@@ -328,7 +332,7 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const { first_name, last_name, jurisdiction, start_date, date_of_birth,
+    const { first_name, last_name, start_date, date_of_birth,
             tax_identifier, bank_account, leave_profile_id, pay_schedule_id } = parsed.data;
 
     const id = uuidv4();
@@ -340,7 +344,7 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
        RETURNING id, tenant_id, first_name, last_name, jurisdiction, start_date, end_date,
                  date_of_birth, tax_identifier, bank_account, status,
                  leave_profile_id, pay_schedule_id, created_at`,
-      [id, tenantId, first_name, last_name, jurisdiction, start_date,
+      [id, tenantId, first_name, last_name, empJurisdiction, start_date,
        date_of_birth ?? null, tax_identifier ?? null, bank_account ?? null,
        leave_profile_id ?? null, pay_schedule_id ?? null],
     );
@@ -390,9 +394,17 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
     const cached = await checkIdempotency(idempotencyKey, 'POST', path);
     if (cached) return reply.status(cached.status_code).send(cached.response);
 
-    const tenantRows = await query<{ id: string }>(`SELECT id FROM tenants WHERE id = $1`, [tenantId]);
+    const tenantRows = await query<{ id: string; jurisdiction: string | null }>(
+      `SELECT id, jurisdiction FROM tenants WHERE id = $1`, [tenantId],
+    );
     if (tenantRows.length === 0) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Tenant not found' } });
+    }
+    const tenantJurisdiction = tenantRows[0].jurisdiction;
+    if (!tenantJurisdiction) {
+      return reply.status(400).send({
+        error: { code: 'NO_JURISDICTION', message: 'This employer has no jurisdiction set. Edit the employer and set NZ or AU first.' },
+      });
     }
 
     const parsed = createPayScheduleSchema.safeParse(request.body);
@@ -402,7 +414,8 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const { name, frequency, jurisdiction, period_start, period_end, pay_date } = parsed.data;
+    const { name, frequency, period_start, period_end, pay_date } = parsed.data;
+    const jurisdiction = tenantJurisdiction;
 
     // Auto-calculate period_end for recurring schedules using a date helper
     function calcPeriodEnd(start: string, freq: string): string {

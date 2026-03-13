@@ -226,10 +226,10 @@ const PlaceholderTab = ({ title }) => (
 );
 
 /* ── MODAL & FORM PRIMITIVES ──────────────────────────────── */
-function Modal({ title, onClose, children }) {
+function Modal({ title, onClose, children, maxWidth=460 }) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(26,22,37,.55)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{background:WH,borderRadius:14,boxShadow:"0 24px 80px rgba(57,23,93,.22)",width:"100%",maxWidth:460,fontFamily:F}}>
+      <div style={{background:WH,borderRadius:14,boxShadow:"0 24px 80px rgba(57,23,93,.22)",width:"100%",maxWidth,fontFamily:F}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px 0"}}>
           <div style={{fontSize:16,fontWeight:700,color:TX}}>{title}</div>
           <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:TT,fontSize:20,lineHeight:1,padding:4}}>×</button>
@@ -946,6 +946,7 @@ function Employees() {
   const [selectedBureauId, setSelectedBureauId] = useState("all");
   const [allEmployers,     setAllEmployers]     = useState([]);
   const [selectedEmployer, setSelectedEmployer] = useState(null);
+  const [paySchedules,     setPaySchedules]     = useState([]);
   const [employees,        setEmployees]        = useState([]);
   const [loading,          setLoading]          = useState(false);
   const [statusFilter,     setStatusFilter]     = useState("active");
@@ -953,14 +954,19 @@ function Employees() {
   const [showNewModal,     setShowNewModal]      = useState(false);
   const [editingEmployee,  setEditingEmployee]  = useState(null);
   const [newValues,        setNewValues]        = useState({
-    first_name:"", last_name:"", jurisdiction:"NZ", start_date:"",
-    date_of_birth:"", tax_identifier:"", bank_account:"",
+    first_name:"", last_name:"", start_date:"",
+    date_of_birth:"", tax_identifier:"", bank_account:"", pay_schedule_id:"",
   });
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState(null);
 
   useEffect(() => { loadAll(); }, []);
-  useEffect(() => { if (selectedEmployer) loadEmployees(selectedEmployer.id); }, [selectedEmployer, statusFilter]);
+  useEffect(() => {
+    if (selectedEmployer) {
+      loadEmployees(selectedEmployer.id);
+      loadPaySchedules(selectedEmployer.id);
+    }
+  }, [selectedEmployer, statusFilter]);
 
   async function loadAll() {
     const res = await fetch(`${API_URL}/api/v1/bureaus`, { headers: apiHeaders() });
@@ -989,13 +995,24 @@ function Employees() {
     } finally { setLoading(false); }
   }
 
-  function closeNew() { setShowNewModal(false); setNewValues({first_name:"",last_name:"",jurisdiction:"NZ",start_date:"",date_of_birth:"",tax_identifier:"",bank_account:""}); setError(null); }
+  async function loadPaySchedules(tenantId) {
+    const res = await fetch(`${API_URL}/api/v1/tenants/${tenantId}/pay-schedules`, { headers: apiHeaders() });
+    if (res.ok) setPaySchedules(await res.json());
+    else setPaySchedules([]);
+  }
+
+  const EMPTY_NEW = { first_name:"", last_name:"", start_date:"", date_of_birth:"", tax_identifier:"", bank_account:"", pay_schedule_id:"" };
+  function closeNew() { setShowNewModal(false); setNewValues(EMPTY_NEW); setError(null); }
 
   async function createEmployee() {
     if (!selectedEmployer) return;
+    if (!newValues.pay_schedule_id) { setError("Please select a pay schedule."); return; }
     setSaving(true); setError(null);
     try {
-      const body = { first_name:newValues.first_name, last_name:newValues.last_name, jurisdiction:newValues.jurisdiction, start_date:newValues.start_date };
+      const body = {
+        first_name: newValues.first_name, last_name: newValues.last_name,
+        start_date: newValues.start_date, pay_schedule_id: newValues.pay_schedule_id,
+      };
       if (newValues.date_of_birth)  body.date_of_birth  = newValues.date_of_birth;
       if (newValues.tax_identifier) body.tax_identifier = newValues.tax_identifier;
       if (newValues.bank_account)   body.bank_account   = newValues.bank_account;
@@ -1113,7 +1130,16 @@ function Employees() {
       </Card>
 
       {showNewModal && (
-        <Modal title={`New Employee${selectedEmployer ? ` · ${selectedEmployer.name}` : ""}`} onClose={closeNew}>
+        <Modal title={`New Employee`} onClose={closeNew} maxWidth={520}>
+          {/* Employer context banner */}
+          <div style={{background:BL,borderRadius:8,padding:"10px 14px",marginBottom:18,display:"flex",alignItems:"center",gap:10}}>
+            <Icon d={ICONS.clients} size={14} color={B}/>
+            <span style={{fontSize:13,color:BM,fontFamily:F}}>
+              Adding to: <strong>{selectedEmployer?.name ?? "—"}</strong>
+              {selectedEmployer?.jurisdiction && <><span style={{margin:"0 6px",opacity:.4}}>·</span><JurTag j={selectedEmployer.jurisdiction}/></>}
+            </span>
+          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <FormField label="First Name">
               <TextInput value={newValues.first_name} onChange={v=>setNewValues(p=>({...p,first_name:v}))} autoFocus />
@@ -1121,30 +1147,43 @@ function Employees() {
             <FormField label="Last Name">
               <TextInput value={newValues.last_name} onChange={v=>setNewValues(p=>({...p,last_name:v}))} />
             </FormField>
-            <FormField label="Jurisdiction">
-              <select value={newValues.jurisdiction} onChange={e=>setNewValues(p=>({...p,jurisdiction:e.target.value}))}
-                style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
-                <option value="NZ">🇳🇿 New Zealand</option>
-                <option value="AU">🇦🇺 Australia</option>
-              </select>
-            </FormField>
             <FormField label="Start Date">
               <TextInput type="date" value={newValues.start_date} onChange={v=>setNewValues(p=>({...p,start_date:v}))} />
             </FormField>
+          </div>
+
+          {/* Pay Schedule — full width, required */}
+          <FormField label="Pay Schedule" hint="required">
+            {paySchedules.length === 0 ? (
+              <div style={{background:AM.bg,color:AM.fg,borderRadius:7,padding:"9px 13px",fontSize:13,fontFamily:F}}>
+                No pay schedules set up for this employer yet. Go to Clients → Edit Employer → Pay Schedules to add one first.
+              </div>
+            ) : (
+              <select value={newValues.pay_schedule_id} onChange={e=>setNewValues(p=>({...p,pay_schedule_id:e.target.value}))}
+                style={{width:"100%",border:`1.5px solid ${newValues.pay_schedule_id?BR:"#f0c060"}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:newValues.pay_schedule_id?TX:TT,background:WH}}>
+                <option value="">— Select pay schedule —</option>
+                {paySchedules.map(s=>(
+                  <option key={s.id} value={s.id}>{s.name} ({FREQ_LABELS[s.frequency]})</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <FormField label="Date of Birth" hint="optional">
               <TextInput type="date" value={newValues.date_of_birth} onChange={v=>setNewValues(p=>({...p,date_of_birth:v}))} />
             </FormField>
-            <FormField label={newValues.jurisdiction==="AU"?"TFN":"IRD Number"} hint="stored plaintext until Phase 6">
-              <TextInput value={newValues.tax_identifier} onChange={v=>setNewValues(p=>({...p,tax_identifier:v}))} placeholder={newValues.jurisdiction==="AU"?"123 456 782":"123-456-789"} />
+            <FormField label={selectedEmployer?.jurisdiction==="AU"?"TFN":"IRD Number"} hint="optional">
+              <TextInput value={newValues.tax_identifier} onChange={v=>setNewValues(p=>({...p,tax_identifier:v}))} placeholder={selectedEmployer?.jurisdiction==="AU"?"123 456 782":"123-456-789"} />
             </FormField>
-            <FormField label="Bank Account" hint="stored plaintext until Phase 6">
-              <TextInput value={newValues.bank_account} onChange={v=>setNewValues(p=>({...p,bank_account:v}))} placeholder={newValues.jurisdiction==="AU"?"BSB-Account":"00-0000-0000000-00"} />
+            <FormField label="Bank Account" hint="optional">
+              <TextInput value={newValues.bank_account} onChange={v=>setNewValues(p=>({...p,bank_account:v}))} placeholder={selectedEmployer?.jurisdiction==="AU"?"BSB-Account":"00-0000-0000000-00"} />
             </FormField>
           </div>
           {error && <ErrorMsg>{error}</ErrorMsg>}
           <ModalActions>
             <Btn ghost onClick={closeNew}>Cancel</Btn>
-            <Btn onClick={createEmployee}>{saving ? "Creating…" : "Create Employee"}</Btn>
+            <Btn onClick={createEmployee} disabled={paySchedules.length===0}>{saving ? "Creating…" : "Create Employee"}</Btn>
           </ModalActions>
         </Modal>
       )}
@@ -1618,19 +1657,32 @@ function ClientForm({ values, onChange }) {
   );
 }
 
+const FREQ_LABELS = { weekly:"Weekly", fortnightly:"Fortnightly", monthly:"Monthly", one_off:"One-off Payment" };
+const FREQ_COLORS = { weekly:GN, fortnightly:BU, monthly:AM, one_off:GY };
+
 function EmployerDetail({ employer, onClose, onUpdated }) {
   const [tab,           setTab]           = useState("Details");
   const [editValues,    setEditValues]    = useState({ name: employer.name, status: employer.status });
   const [jurValues,     setJurValues]     = useState({ jurisdiction: "NZ", legal_entity_name: "", tax_id: "" });
   const [jurisdictions, setJurisdictions] = useState([]);
-  const [saving,        setSaving]        = useState(false);
-  const [error,         setError]         = useState(null);
+  const [schedules,     setSchedules]     = useState([]);
+  const [showSchForm,   setShowSchForm]   = useState(false);
+  const [schValues,     setSchValues]     = useState({
+    name:"", frequency:"weekly", period_start:"", period_end:"", pay_date:"",
+  });
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState(null);
 
-  useEffect(() => { loadDetail(); }, []);
+  useEffect(() => { loadDetail(); loadSchedules(); }, []);
 
   async function loadDetail() {
     const res = await fetch(`${API_URL}/api/v1/tenants/${employer.id}`, { headers: apiHeaders() });
     if (res.ok) { const data = await res.json(); setJurisdictions(data.jurisdictions ?? []); }
+  }
+
+  async function loadSchedules() {
+    const res = await fetch(`${API_URL}/api/v1/tenants/${employer.id}/pay-schedules`, { headers: apiHeaders() });
+    if (res.ok) setSchedules(await res.json());
   }
 
   async function saveDetails() {
@@ -1668,19 +1720,41 @@ function EmployerDetail({ employer, onClose, onUpdated }) {
     } finally { setSaving(false); }
   }
 
+  async function createSchedule() {
+    setSaving(true); setError(null);
+    try {
+      const body = {
+        name: schValues.name, frequency: schValues.frequency,
+        period_start: schValues.period_start, pay_date: schValues.pay_date,
+      };
+      if (schValues.frequency === "one_off") body.period_end = schValues.period_end;
+      const res = await fetch(`${API_URL}/api/v1/tenants/${employer.id}/pay-schedules`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to create schedule"); return; }
+      setSchedules(prev => [data, ...prev]);
+      setShowSchForm(false);
+      setSchValues({ name:"", frequency:"weekly", period_start:"", period_end:"", pay_date:"" });
+    } finally { setSaving(false); }
+  }
+
+  const selStyle = {width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH};
   const taxLabel = jurValues.jurisdiction === "AU" ? "ABN" : "NZBN";
 
   return (
-    <Modal title={employer.name} onClose={onClose}>
-      <TabBar tabs={["Details","Jurisdictions"]} active={tab} setActive={setTab}/>
+    <Modal title={employer.name} onClose={onClose} maxWidth={580}>
+      <TabBar tabs={["Details","Jurisdictions","Pay Schedules"]} active={tab} setActive={setTab}/>
+
       {tab === "Details" && (
         <>
           <FormField label="Employer Name">
             <TextInput value={editValues.name} onChange={v => setEditValues(p=>({...p,name:v}))} />
           </FormField>
           <FormField label="Status">
-            <select value={editValues.status} onChange={e=>setEditValues(p=>({...p,status:e.target.value}))}
-              style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+            <select value={editValues.status} onChange={e=>setEditValues(p=>({...p,status:e.target.value}))} style={selStyle}>
               <option value="active">Active</option>
               <option value="suspended">Suspended</option>
               <option value="closed">Closed</option>
@@ -1693,6 +1767,7 @@ function EmployerDetail({ employer, onClose, onUpdated }) {
           </ModalActions>
         </>
       )}
+
       {tab === "Jurisdictions" && (
         <>
           {jurisdictions.length > 0 && (
@@ -1714,8 +1789,7 @@ function EmployerDetail({ employer, onClose, onUpdated }) {
             {jurisdictions.length > 0 ? "Update Jurisdiction" : "Add Jurisdiction"}
           </div>
           <FormField label="Jurisdiction">
-            <select value={jurValues.jurisdiction} onChange={e=>setJurValues(p=>({...p,jurisdiction:e.target.value}))}
-              style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+            <select value={jurValues.jurisdiction} onChange={e=>setJurValues(p=>({...p,jurisdiction:e.target.value}))} style={selStyle}>
               <option value="NZ">🇳🇿 New Zealand</option>
               <option value="AU">🇦🇺 Australia</option>
             </select>
@@ -1733,6 +1807,83 @@ function EmployerDetail({ employer, onClose, onUpdated }) {
             <Btn ghost onClick={onClose}>Close</Btn>
             <Btn onClick={addJurisdiction}>{saving ? "Saving…" : "Save Jurisdiction"}</Btn>
           </ModalActions>
+        </>
+      )}
+
+      {tab === "Pay Schedules" && (
+        <>
+          {/* Existing schedules list */}
+          {schedules.length > 0 && (
+            <div style={{marginBottom:20}}>
+              {schedules.map(s => {
+                const fc = FREQ_COLORS[s.frequency] || GY;
+                return (
+                  <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:`1px solid ${BR}`}}>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                        <span style={{background:fc.bg,color:fc.fg,borderRadius:5,padding:"2px 9px",fontSize:11,fontWeight:700,fontFamily:F}}>
+                          {FREQ_LABELS[s.frequency]}
+                        </span>
+                        <span style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F}}>{s.name}</span>
+                        <JurTag j={s.jurisdiction}/>
+                      </div>
+                      <div style={{fontSize:12,color:TT,fontFamily:F}}>
+                        Period: {fmtDate(s.period_start)} → {fmtDate(s.period_end)} · Pay date: {fmtDate(s.pay_date)}
+                      </div>
+                    </div>
+                    {!s.is_active && <span style={{fontSize:11,color:TT,fontFamily:F}}>Inactive</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!showSchForm ? (
+            <div style={{textAlign:"center",padding:"8px 0"}}>
+              <Btn icon="plus" onClick={()=>{ setShowSchForm(true); setError(null); }}>Add Pay Schedule</Btn>
+            </div>
+          ) : (
+            <>
+              <div style={{fontSize:12,fontWeight:700,color:TM,textTransform:"uppercase",letterSpacing:.5,fontFamily:F,marginBottom:14}}>New Pay Schedule</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <FormField label="Schedule Name">
+                  <TextInput value={schValues.name} onChange={v=>setSchValues(p=>({...p,name:v}))} placeholder="e.g. Weekly Wages" autoFocus />
+                </FormField>
+                <FormField label="Frequency">
+                  <select value={schValues.frequency} onChange={e=>setSchValues(p=>({...p,frequency:e.target.value}))} style={selStyle}>
+                    <option value="weekly">Weekly</option>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="one_off">One-off Payment</option>
+                  </select>
+                </FormField>
+                <FormField label={schValues.frequency === "one_off" ? "Period Start" : "First Period Start"}>
+                  <TextInput type="date" value={schValues.period_start} onChange={v=>setSchValues(p=>({...p,period_start:v}))} />
+                </FormField>
+                {schValues.frequency === "one_off" && (
+                  <FormField label="Period End">
+                    <TextInput type="date" value={schValues.period_end} onChange={v=>setSchValues(p=>({...p,period_end:v}))} />
+                  </FormField>
+                )}
+                <FormField label={schValues.frequency === "one_off" ? "Pay Date" : "First Pay Date"}>
+                  <TextInput type="date" value={schValues.pay_date} onChange={v=>setSchValues(p=>({...p,pay_date:v}))} />
+                </FormField>
+              </div>
+              {schValues.frequency !== "one_off" && (
+                <div style={{fontSize:12,color:TT,fontFamily:F,marginBottom:12,marginTop:-4}}>
+                  Period end is calculated automatically from the start date.
+                </div>
+              )}
+              {error && <ErrorMsg>{error}</ErrorMsg>}
+              <ModalActions>
+                <Btn ghost onClick={()=>{ setShowSchForm(false); setError(null); }}>Cancel</Btn>
+                <Btn onClick={createSchedule}>{saving ? "Saving…" : "Create Schedule"}</Btn>
+              </ModalActions>
+            </>
+          )}
+          {!showSchForm && (
+            <ModalActions><Btn ghost onClick={onClose}>Close</Btn></ModalActions>
+          )}
         </>
       )}
     </Modal>
@@ -1753,6 +1904,7 @@ function Clients() {
   const [editClientValues, setEditClientValues] = useState({});
   const [employerName,     setEmployerName]     = useState("");
   const [employerSlug,     setEmployerSlug]     = useState("");
+  const [employerJur,      setEmployerJur]      = useState("NZ");
   const [saving,           setSaving]           = useState(false);
   const [error,            setError]            = useState(null);
 
@@ -1777,7 +1929,7 @@ function Clients() {
 
   function closeNewClient()   { setShowNewClient(false);   setNewClientValues({name:"",country:"",admin_email:"",phone:"",website:""}); setError(null); }
   function closeEditClient()  { setShowEditClient(false);  setEditClientValues({});    setError(null); }
-  function closeNewEmployer() { setShowNewEmployer(false); setEmployerName(""); setEmployerSlug(""); setError(null); }
+  function closeNewEmployer() { setShowNewEmployer(false); setEmployerName(""); setEmployerSlug(""); setEmployerJur("NZ"); setError(null); }
 
   function openEditClient() {
     setEditClientValues({
@@ -1832,7 +1984,7 @@ function Clients() {
       const res = await fetch(`${API_URL}/api/v1/bureaus/${selectedClient.id}/tenants`, {
         method: "POST",
         headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ name: employerName, slug: employerSlug }),
+        body: JSON.stringify({ name: employerName, slug: employerSlug, jurisdiction: employerJur }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data?.error?.message || "Failed to create employer"); return; }
@@ -1953,6 +2105,13 @@ function Clients() {
         <Modal title={`New Employer under ${selectedClient?.name}`} onClose={closeNewEmployer}>
           <FormField label="Employer Name">
             <TextInput value={employerName} onChange={handleEmployerNameChange} placeholder="e.g. Smith Family" autoFocus />
+          </FormField>
+          <FormField label="Jurisdiction">
+            <select value={employerJur} onChange={e=>setEmployerJur(e.target.value)}
+              style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+              <option value="NZ">🇳🇿 New Zealand</option>
+              <option value="AU">🇦🇺 Australia</option>
+            </select>
           </FormField>
           <FormField label="Slug" hint="auto-generated — edit if needed">
             <TextInput value={employerSlug} onChange={setEmployerSlug} placeholder="e.g. smith-family" />
