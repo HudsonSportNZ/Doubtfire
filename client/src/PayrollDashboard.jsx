@@ -1993,7 +1993,56 @@ function Clients() {
   }
 
   if (loading) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:240,color:TT,fontFamily:F,fontSize:14}}>Loading…</div>
+    <div>
+      <SectionHead
+        title="Clients"
+        sub="Manage your clients and their employers"
+        actions={<Btn icon="plus" disabled>New Client</Btn>}
+      />
+      <div style={{display:"grid",gridTemplateColumns:"240px 1fr",gap:20,alignItems:"start"}}>
+        {/* Client sidebar skeleton */}
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:TT,letterSpacing:.6,textTransform:"uppercase",fontFamily:F,marginBottom:10}}>Clients</div>
+          {[1,2,3].map(i => (
+            <div key={i} style={{padding:"13px 16px",borderRadius:9,marginBottom:8,background:WH,border:`1.5px solid ${BR}`}}>
+              <div style={{height:14,width:"70%",borderRadius:6,background:"#e8e4f0",marginBottom:8,animation:"pulse 1.4s ease-in-out infinite"}}/>
+              <div style={{height:11,width:"40%",borderRadius:6,background:"#ede9f5",animation:"pulse 1.4s ease-in-out infinite"}}/>
+            </div>
+          ))}
+        </div>
+        {/* Employer panel skeleton */}
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+            <div>
+              <div style={{height:16,width:180,borderRadius:6,background:"#e8e4f0",marginBottom:8,animation:"pulse 1.4s ease-in-out infinite"}}/>
+              <div style={{height:12,width:120,borderRadius:6,background:"#ede9f5",animation:"pulse 1.4s ease-in-out infinite"}}/>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <div style={{height:32,width:90,borderRadius:8,background:"#ede9f5",animation:"pulse 1.4s ease-in-out infinite"}}/>
+              <div style={{height:32,width:110,borderRadius:8,background:"#e8e4f0",animation:"pulse 1.4s ease-in-out infinite"}}/>
+            </div>
+          </div>
+          <div style={{fontSize:11,fontWeight:700,color:TT,letterSpacing:.6,textTransform:"uppercase",fontFamily:F,marginBottom:10}}>Employers</div>
+          <Card>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr><TH>Name</TH><TH>Status</TH><TH>Created</TH><TH></TH></tr></thead>
+              <tbody>
+                {[1,2,3,4].map(i => (
+                  <tr key={i} style={{borderBottom:`1px solid ${BR}`}}>
+                    {[["55%",8],["20%",6],["18%",6],["8%",6]].map(([w,h],j) => (
+                      <td key={j} style={{padding:"12px 14px"}}>
+                        <div style={{height:h,width:w,borderRadius:4,background:i%2===0?"#e8e4f0":"#ede9f5",animation:"pulse 1.4s ease-in-out infinite"}}/>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
+    </div>
   );
 
   return (
@@ -2047,7 +2096,23 @@ function Clients() {
               <div style={{fontSize:11,fontWeight:700,color:TT,letterSpacing:.6,textTransform:"uppercase",fontFamily:F,marginBottom:10}}>Employers</div>
 
               {employersLoading ? (
-                <div style={{color:TT,fontFamily:F,fontSize:13,padding:20}}>Loading…</div>
+                <Card>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead><tr><TH>Name</TH><TH>Status</TH><TH>Created</TH><TH></TH></tr></thead>
+                    <tbody>
+                      {[1,2,3].map(i => (
+                        <tr key={i} style={{borderBottom:`1px solid ${BR}`}}>
+                          {[["55%",8],["20%",6],["18%",6],["8%",6]].map(([w,h],j) => (
+                            <td key={j} style={{padding:"12px 14px"}}>
+                              <div style={{height:h,width:w,borderRadius:4,background:i%2===0?"#e8e4f0":"#ede9f5",animation:"pulse 1.4s ease-in-out infinite"}}/>
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
+                </Card>
               ) : employers.length === 0 ? (
                 <Card style={{padding:32,textAlign:"center"}}>
                   <div style={{fontSize:13.5,color:TT,fontFamily:F}}>No employers yet. Add the first one.</div>
