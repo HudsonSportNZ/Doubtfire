@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useAuth } from "./contexts/AuthContext";
 
 /* ── TOKENS ───────────────────────────────────────────────── */
 const B  = "#39175D";
@@ -43,6 +44,7 @@ const ICONS = {
   plus:       ["M12 5v14","M5 12h14"],
   upload:     ["M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4","M17 8l-5-5-5 5","M12 3v12"],
   globe:      ["M12 2a10 10 0 100 20A10 10 0 0012 2z","M2 12h20","M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"],
+  clients:    ["M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16","M3 21h18","M9 7h6","M9 11h6","M9 15h6"],
 };
 
 /* ── JURISDICTIONS ────────────────────────────────────────── */
@@ -223,6 +225,41 @@ const PlaceholderTab = ({ title }) => (
   </div>
 );
 
+/* ── MODAL & FORM PRIMITIVES ──────────────────────────────── */
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(26,22,37,.55)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{background:WH,borderRadius:14,boxShadow:"0 24px 80px rgba(57,23,93,.22)",width:"100%",maxWidth:460,fontFamily:F}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px 0"}}>
+          <div style={{fontSize:16,fontWeight:700,color:TX}}>{title}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:TT,fontSize:20,lineHeight:1,padding:4}}>×</button>
+        </div>
+        <div style={{padding:"20px 24px 24px"}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const FormField = ({ label, hint, children }) => (
+  <div style={{marginBottom:16}}>
+    <div style={{fontSize:12,fontWeight:600,color:TM,marginBottom:5}}>{label}{hint && <span style={{fontWeight:400,color:TT,marginLeft:6}}>{hint}</span>}</div>
+    {children}
+  </div>
+);
+
+const TextInput = ({ value, onChange, placeholder, autoFocus, type="text" }) => (
+  <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
+    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX}} />
+);
+
+const ErrorMsg = ({ children }) => (
+  <div style={{background:RD.bg,color:RD.fg,borderRadius:7,padding:"9px 13px",fontSize:13,fontWeight:500,marginBottom:14}}>{children}</div>
+);
+
+const ModalActions = ({ children }) => (
+  <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:20}}>{children}</div>
+);
+
 const SelectInput = ({ value, onChange, options, style={} }) => (
   <select value={value} onChange={e=>onChange(e.target.value)}
     style={{border:`1.5px solid ${BR}`,borderRadius:7,padding:"7px 12px",fontSize:13,fontFamily:F,color:TX,background:WH,cursor:"pointer",appearance:"none",...style}}>
@@ -344,9 +381,25 @@ function PageJurFilter({ jur, setJur }) {
   );
 }
 
+/* ── API HELPERS ──────────────────────────────────────────── */
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+function apiHeaders() {
+  const token = localStorage.getItem("auth_token");
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+}
+
+/* ── DATE HELPERS ─────────────────────────────────────────── */
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const [y, m, d] = String(iso).split("T")[0].split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
 /* ── NAV STRUCTURE ────────────────────────────────────────── */
 const NAV = [
   { id:"dashboard", label:"Dashboard",     iconKey:"dashboard" },
+  { id:"clients",   label:"Clients",       iconKey:"clients"   },
   { id:"pay-runs",  label:"Pay Runs",      iconKey:"payRuns"   },
   { id:"employees", label:"Employees",     iconKey:"employees" },
   { id:"payroll-inputs", label:"Payroll Inputs", iconKey:"inputs", children:[
@@ -366,7 +419,7 @@ const NAV = [
 ];
 
 const PAGE_LABELS = {
-  dashboard:"Dashboard", "pay-runs":"Pay Runs", employees:"Employees",
+  dashboard:"Dashboard", clients:"Clients", "pay-runs":"Pay Runs", employees:"Employees",
   timesheets:"Timesheets", expenses:"Expenses", leave:"Leave",
   "rule-sets":"Rule Sets", reports:"Reports",
   "settings-business":"Business Settings", "settings-payroll":"Payroll Settings",
@@ -375,7 +428,7 @@ const PAGE_LABELS = {
 };
 
 /* ── SIDEBAR ──────────────────────────────────────────────── */
-function Sidebar({ page, setPage, openMenu, setOpenMenu }) {
+function Sidebar({ page, setPage, openMenu, setOpenMenu, user, onLogout }) {
   const navIconColor = (isActive) => isActive ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.5)";
   return (
     <aside style={{width:228,background:B,display:"flex",flexDirection:"column",flexShrink:0,boxShadow:"2px 0 16px rgba(57,23,93,0.2)"}}>
@@ -432,15 +485,22 @@ function Sidebar({ page, setPage, openMenu, setOpenMenu }) {
         })}
       </nav>
 
-      {/* User role indicator */}
-      <div style={{padding:"14px 16px",borderTop:"1px solid rgba(255,255,255,.1)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:9}}>
-          <div style={{width:30,height:30,background:"rgba(255,255,255,.18)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,fontFamily:F,flexShrink:0}}>OT</div>
+      {/* User + Logout */}
+      <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,.1)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+          <div style={{width:30,height:30,background:"rgba(255,255,255,.18)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,fontFamily:F,flexShrink:0}}>
+            {user?.name?.charAt(0)?.toUpperCase() ?? "?"}
+          </div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{color:"rgba(255,255,255,.9)",fontSize:12.5,fontWeight:600,fontFamily:F,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Ops Team</div>
-            <div style={{color:"rgba(255,255,255,.4)",fontSize:11,fontFamily:F}}>Admin</div>
+            <div style={{color:"rgba(255,255,255,.9)",fontSize:12.5,fontWeight:600,fontFamily:F,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.name ?? "—"}</div>
+            <div style={{color:"rgba(255,255,255,.4)",fontSize:11,fontFamily:F}}>{user?.role ?? ""}</div>
           </div>
         </div>
+        <button onClick={onLogout} style={{width:"100%",background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.15)",borderRadius:6,color:"rgba(255,255,255,.6)",fontSize:12,fontWeight:600,cursor:"pointer",padding:"6px 0",fontFamily:F,transition:"background .15s"}}
+          onMouseOver={e=>e.currentTarget.style.background="rgba(255,255,255,.15)"}
+          onMouseOut={e=>e.currentTarget.style.background="rgba(255,255,255,.08)"}>
+          Log out
+        </button>
       </div>
     </aside>
   );
@@ -671,57 +731,431 @@ function PayRuns({ jur, setJur }) {
   );
 }
 
+/* ── EMPLOYEE DETAIL MODAL ────────────────────────────────── */
+const NZ_TAX_CODES = ["M","M SL","ME","ME SL","S","SH","ST","CAE","EDW","NSW","WT"];
+const AU_TAX_CODES = ["resident","non-resident","working_holiday"];
+
+function EmployeeDetailModal({ employee, onClose, onUpdated }) {
+  const [tab,       setTab]       = useState("Details");
+  const [values,    setValues]    = useState({
+    first_name: employee.first_name, last_name: employee.last_name,
+    status: employee.status, end_date: employee.end_date ?? "",
+  });
+  const [paySettings, setPaySettings] = useState([]);
+  const [showPayForm, setShowPayForm] = useState(false);
+  const [payValues,   setPayValues]   = useState({
+    pay_type:"hourly", pay_rate:"", pay_frequency:"weekly",
+    tax_code:"M", hours_per_week:"", effective_from:"",
+    kiwisaver_rate:"0.0300", kiwisaver_opted_out: false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState(null);
+
+  useEffect(() => { loadPaySettings(); }, []);
+
+  async function loadPaySettings() {
+    const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}/pay-settings`, { headers: apiHeaders() });
+    if (res.ok) setPaySettings(await res.json());
+  }
+
+  async function saveDetails() {
+    setSaving(true); setError(null);
+    try {
+      const body = { first_name: values.first_name, last_name: values.last_name, status: values.status };
+      if (values.end_date) body.end_date = values.end_date;
+      const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}`, {
+        method: "PATCH",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to save"); return; }
+      onUpdated(data);
+    } finally { setSaving(false); }
+  }
+
+  async function addPaySettings() {
+    setSaving(true); setError(null);
+    try {
+      const body = {
+        pay_type: payValues.pay_type, pay_rate: payValues.pay_rate,
+        pay_frequency: payValues.pay_frequency, tax_code: payValues.tax_code,
+        effective_from: payValues.effective_from,
+      };
+      if (payValues.hours_per_week)   body.hours_per_week   = payValues.hours_per_week;
+      if (employee.jurisdiction === "NZ") {
+        body.kiwisaver_rate      = payValues.kiwisaver_rate;
+        body.kiwisaver_opted_out = payValues.kiwisaver_opted_out;
+      }
+      const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}/pay-settings`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to add pay settings"); return; }
+      setPaySettings(prev => [data, ...prev]);
+      setShowPayForm(false);
+      setPayValues({ pay_type:"hourly", pay_rate:"", pay_frequency:"weekly", tax_code:"M", hours_per_week:"", effective_from:"", kiwisaver_rate:"0.0300", kiwisaver_opted_out:false });
+    } finally { setSaving(false); }
+  }
+
+  const taxCodes = employee.jurisdiction === "AU" ? AU_TAX_CODES : NZ_TAX_CODES;
+  const initials = `${employee.first_name[0]}${employee.last_name[0]}`.toUpperCase();
+
+  return (
+    <Modal title={
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:34,height:34,background:BL,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:B,flexShrink:0}}>{initials}</div>
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:TX,fontFamily:F}}>{employee.first_name} {employee.last_name}</div>
+          <div style={{display:"flex",gap:8,marginTop:2}}><JurTag j={employee.jurisdiction}/><Badge s={employee.status}/></div>
+        </div>
+      </div>
+    } onClose={onClose}>
+      <TabBar tabs={["Details","Pay Settings"]} active={tab} setActive={setTab}/>
+
+      {tab === "Details" && (
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <FormField label="First Name">
+              <TextInput value={values.first_name} onChange={v=>setValues(p=>({...p,first_name:v}))} />
+            </FormField>
+            <FormField label="Last Name">
+              <TextInput value={values.last_name} onChange={v=>setValues(p=>({...p,last_name:v}))} />
+            </FormField>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <FormField label="Status">
+              <select value={values.status} onChange={e=>setValues(p=>({...p,status:e.target.value}))}
+                style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                <option value="active">Active</option>
+                <option value="terminated">Terminated</option>
+              </select>
+            </FormField>
+            <FormField label="End Date" hint="if terminated">
+              <TextInput type="date" value={values.end_date} onChange={v=>setValues(p=>({...p,end_date:v}))} />
+            </FormField>
+          </div>
+          <div style={{fontSize:12,color:TT,fontFamily:F,marginBottom:12}}>
+            Start: {fmtDate(employee.start_date)} · Jurisdiction: {employee.jurisdiction}
+          </div>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Close</Btn>
+            <Btn onClick={saveDetails}>{saving ? "Saving…" : "Save Changes"}</Btn>
+          </ModalActions>
+        </>
+      )}
+
+      {tab === "Pay Settings" && (
+        <>
+          {paySettings.length > 0 && (
+            <div style={{marginBottom:20}}>
+              {paySettings.map((ps,i) => (
+                <div key={ps.id} style={{padding:"12px 0",borderBottom:`1px solid ${BR}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <span style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F,textTransform:"capitalize"}}>{ps.pay_type}</span>
+                      <span style={{fontSize:13.5,color:TX,fontFamily:F}}> · ${Number(ps.pay_rate).toFixed(2)} · {ps.pay_frequency}</span>
+                    </div>
+                    {i===0 && <span style={{background:GN.bg,color:GN.fg,fontSize:11,fontWeight:700,borderRadius:4,padding:"2px 8px",fontFamily:F}}>CURRENT</span>}
+                  </div>
+                  <div style={{fontSize:12,color:TT,fontFamily:F,marginTop:3}}>
+                    Tax: {ps.tax_code} · From: {fmtDate(ps.effective_from)}{ps.effective_to ? ` → ${fmtDate(ps.effective_to)}` : ""}
+                    {ps.kiwisaver_rate && ` · KiwiSaver: ${(Number(ps.kiwisaver_rate)*100).toFixed(0)}%`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!showPayForm ? (
+            <div style={{textAlign:"center",padding:"12px 0"}}>
+              <Btn onClick={()=>setShowPayForm(true)} icon="plus">Add Pay Settings</Btn>
+            </div>
+          ) : (
+            <>
+              <div style={{fontSize:12,fontWeight:700,color:TM,textTransform:"uppercase",letterSpacing:.5,fontFamily:F,marginBottom:12}}>New Pay Settings</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <FormField label="Pay Type">
+                  <select value={payValues.pay_type} onChange={e=>setPayValues(p=>({...p,pay_type:e.target.value}))}
+                    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                    <option value="hourly">Hourly</option>
+                    <option value="salary">Salary</option>
+                    <option value="casual">Casual</option>
+                  </select>
+                </FormField>
+                <FormField label={payValues.pay_type==="salary"?"Annual Salary ($)":"Hourly Rate ($)"}>
+                  <TextInput value={payValues.pay_rate} onChange={v=>setPayValues(p=>({...p,pay_rate:v}))} placeholder="e.g. 28.50" />
+                </FormField>
+                <FormField label="Pay Frequency">
+                  <select value={payValues.pay_frequency} onChange={e=>setPayValues(p=>({...p,pay_frequency:e.target.value}))}
+                    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                    <option value="weekly">Weekly</option>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </FormField>
+                <FormField label="Tax Code">
+                  <select value={payValues.tax_code} onChange={e=>setPayValues(p=>({...p,tax_code:e.target.value}))}
+                    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                    {taxCodes.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </FormField>
+                {payValues.pay_type !== "salary" && (
+                  <FormField label="Hours Per Week">
+                    <TextInput value={payValues.hours_per_week} onChange={v=>setPayValues(p=>({...p,hours_per_week:v}))} placeholder="e.g. 40" />
+                  </FormField>
+                )}
+                <FormField label="Effective From">
+                  <TextInput type="date" value={payValues.effective_from} onChange={v=>setPayValues(p=>({...p,effective_from:v}))} />
+                </FormField>
+                {employee.jurisdiction === "NZ" && (
+                  <FormField label="KiwiSaver Rate">
+                    <select value={payValues.kiwisaver_rate} onChange={e=>setPayValues(p=>({...p,kiwisaver_rate:e.target.value}))}
+                      style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                      <option value="0.0300">3%</option>
+                      <option value="0.0400">4%</option>
+                      <option value="0.0600">6%</option>
+                      <option value="0.0800">8%</option>
+                      <option value="0.1000">10%</option>
+                    </select>
+                  </FormField>
+                )}
+              </div>
+              {error && <ErrorMsg>{error}</ErrorMsg>}
+              <ModalActions>
+                <Btn ghost onClick={()=>{ setShowPayForm(false); setError(null); }}>Cancel</Btn>
+                <Btn onClick={addPaySettings}>{saving ? "Saving…" : "Save Pay Settings"}</Btn>
+              </ModalActions>
+            </>
+          )}
+          {!showPayForm && paySettings.length > 0 && (
+            <ModalActions><Btn ghost onClick={onClose}>Close</Btn></ModalActions>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
 /* ── EMPLOYEES ────────────────────────────────────────────── */
-function Employees({ jur, setJur }) {
-  const filtered = jur === "ALL" ? EMPLOYEES : EMPLOYEES.filter(e => e.jur === jur);
+function Employees() {
+  const [bureaus,          setBureaus]          = useState([]);
+  const [selectedBureauId, setSelectedBureauId] = useState("all");
+  const [allEmployers,     setAllEmployers]     = useState([]);
+  const [selectedEmployer, setSelectedEmployer] = useState(null);
+  const [employees,        setEmployees]        = useState([]);
+  const [loading,          setLoading]          = useState(false);
+  const [statusFilter,     setStatusFilter]     = useState("active");
+  const [search,           setSearch]           = useState("");
+  const [showNewModal,     setShowNewModal]      = useState(false);
+  const [editingEmployee,  setEditingEmployee]  = useState(null);
+  const [newValues,        setNewValues]        = useState({
+    first_name:"", last_name:"", jurisdiction:"NZ", start_date:"",
+    date_of_birth:"", tax_identifier:"", bank_account:"",
+  });
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState(null);
+
+  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { if (selectedEmployer) loadEmployees(selectedEmployer.id); }, [selectedEmployer, statusFilter]);
+
+  async function loadAll() {
+    const res = await fetch(`${API_URL}/api/v1/bureaus`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const bureaList = await res.json();
+    setBureaus(bureaList);
+    const all = [];
+    for (const b of bureaList) {
+      const r = await fetch(`${API_URL}/api/v1/bureaus/${b.id}/tenants`, { headers: apiHeaders() });
+      if (r.ok) {
+        const tenants = await r.json();
+        tenants.forEach(t => { t._bureauId = b.id; t._bureauName = b.name; });
+        all.push(...tenants);
+      }
+    }
+    setAllEmployers(all);
+    if (all.length > 0) setSelectedEmployer(all[0]);
+  }
+
+  async function loadEmployees(tenantId) {
+    setLoading(true);
+    try {
+      const url = `${API_URL}/api/v1/tenants/${tenantId}/employees${statusFilter !== "all" ? `?status=${statusFilter}` : ""}`;
+      const res = await fetch(url, { headers: apiHeaders() });
+      if (res.ok) setEmployees(await res.json());
+    } finally { setLoading(false); }
+  }
+
+  function closeNew() { setShowNewModal(false); setNewValues({first_name:"",last_name:"",jurisdiction:"NZ",start_date:"",date_of_birth:"",tax_identifier:"",bank_account:""}); setError(null); }
+
+  async function createEmployee() {
+    if (!selectedEmployer) return;
+    setSaving(true); setError(null);
+    try {
+      const body = { first_name:newValues.first_name, last_name:newValues.last_name, jurisdiction:newValues.jurisdiction, start_date:newValues.start_date };
+      if (newValues.date_of_birth)  body.date_of_birth  = newValues.date_of_birth;
+      if (newValues.tax_identifier) body.tax_identifier = newValues.tax_identifier;
+      if (newValues.bank_account)   body.bank_account   = newValues.bank_account;
+      const res = await fetch(`${API_URL}/api/v1/tenants/${selectedEmployer.id}/employees`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to create employee"); return; }
+      setEmployees(prev => [data, ...prev]);
+      closeNew();
+    } finally { setSaving(false); }
+  }
+
+  const visibleEmployers = selectedBureauId === "all"
+    ? allEmployers
+    : allEmployers.filter(t => t._bureauId === selectedBureauId);
+
+  const filtered = employees.filter(e =>
+    search === "" || `${e.first_name} ${e.last_name}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  function handleBureauChange(bureauId) {
+    setSelectedBureauId(bureauId);
+    const next = bureauId === "all" ? allEmployers : allEmployers.filter(t => t._bureauId === bureauId);
+    if (next.length > 0) setSelectedEmployer(next[0]);
+  }
+
+  const selStyle = {border:`1.5px solid ${BR}`,borderRadius:7,padding:"7px 13px",fontSize:13,fontFamily:F,color:TX,background:WH};
+
   return (
     <div>
-      <SectionHead
-        title="Employees"
-        sub={`${filtered.length} employee${filtered.length !== 1 ? "s" : ""}${jur !== "ALL" ? ` in ${jur}` : " across all countries"}`}
-        actions={<><Btn ghost icon="upload">Import Employees</Btn><Btn icon="plus">Add New Employee</Btn></>}
-      />
-      <Card style={{ padding: "20px 22px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <PageJurFilter jur={jur} setJur={setJur} />
-            {jur !== "ALL" && (
-              <button onClick={() => setJur("ALL")} style={{ background: "none", border: "none", color: TT, fontSize: 12.5, cursor: "pointer", fontFamily: F, textDecoration: "underline" }}>Clear</button>
-            )}
-          </div>
-          <div style={{ position: "relative" }}>
-            <Icon d={ICONS.search} size={14} color={TT} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-            <input placeholder="Search employees…" style={{ border: `1.5px solid ${BR}`, borderRadius: 7, padding: "7px 13px 7px 32px", fontSize: 13, fontFamily: F, color: TX, width: 220 }} />
-          </div>
+      {/* Filter bar row 1: Client / Employer / Pay Run / Status */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:600,color:TT,fontFamily:F,whiteSpace:"nowrap"}}>Filter by:</span>
+
+        {/* Client */}
+        <select value={selectedBureauId} onChange={e=>handleBureauChange(e.target.value)} style={selStyle}>
+          <option value="all">All Clients</option>
+          {bureaus.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+
+        {/* Employer */}
+        <select value={selectedEmployer?.id ?? ""} onChange={e=>setSelectedEmployer(visibleEmployers.find(t=>t.id===e.target.value))} style={selStyle}>
+          {visibleEmployers.length === 0
+            ? <option value="">No employers</option>
+            : visibleEmployers.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+
+        {/* Pay Run (placeholder) */}
+        <select style={{...selStyle,color:TT}} disabled>
+          <option>All Pay Runs</option>
+        </select>
+
+        {/* Status */}
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={selStyle}>
+          <option value="active">Active</option>
+          <option value="terminated">Terminated</option>
+          <option value="all">All Statuses</option>
+        </select>
+
+        <div style={{flex:1}}/>
+
+        {/* Search + action buttons */}
+        <div style={{position:"relative"}}>
+          <Icon d={ICONS.search} size={14} color={TT} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search employees…"
+            style={{border:`1.5px solid ${BR}`,borderRadius:7,padding:"7px 13px 7px 32px",fontSize:13,fontFamily:F,color:TX,width:200}}/>
         </div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><TH>Employee</TH><TH>Pay Frequency</TH><TH>Rule Set</TH><TH>Start Date</TH><TH>Last Paid Date</TH><TH></TH></tr></thead>
-          <tbody>
-            {filtered.length === 0
-              ? <tr><td colSpan={6} style={{ padding: "28px 14px", textAlign: "center", color: TT, fontFamily: F, fontSize: 13.5 }}>No employees found for this country.</td></tr>
-              : filtered.map(e => (
+        <Btn ghost icon="upload">Import Employees</Btn>
+        <Btn icon="plus" onClick={()=>{ setShowNewModal(true); setError(null); }}>Add Employee</Btn>
+      </div>
+
+      <Card>
+        {loading ? (
+          <div style={{padding:32,textAlign:"center",color:TT,fontFamily:F,fontSize:13.5}}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{padding:40,textAlign:"center"}}>
+            <div style={{fontSize:32,opacity:.12,marginBottom:12}}>◎</div>
+            <div style={{fontSize:14,fontWeight:700,color:TT,fontFamily:F}}>No employees found</div>
+            <div style={{fontSize:13,color:TT,fontFamily:F,marginTop:6}}>
+              {employees.length===0 ? "Add the first employee to this employer." : "No employees match the current filter."}
+            </div>
+          </div>
+        ) : (
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr><TH>Employee</TH><TH>Employer</TH><TH>Jurisdiction</TH><TH>Status</TH><TH>Start Date</TH><TH></TH></tr></thead>
+            <tbody>
+              {filtered.map(e => (
                 <tr key={e.id} className="trow">
-                  <td style={{ padding: "12px 14px", borderBottom: "1px solid #f0eef7" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 32, height: 32, background: BL, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: B, fontFamily: F, flexShrink: 0 }}>
-                        {e.name.split(" ").map(n => n[0]).join("")}
+                  <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:32,height:32,background:BL,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:B,fontFamily:F,flexShrink:0}}>
+                        {e.first_name[0]}{e.last_name[0]}
                       </div>
-                      <span style={{ fontSize: 13.5, fontWeight: 600, color: TX, fontFamily: F }}>{e.name}</span>
+                      <span style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F}}>{e.first_name} {e.last_name}</span>
                     </div>
                   </td>
-                  <TD>{e.freq}</TD>
-                  <td style={{ padding: "12px 14px", borderBottom: "1px solid #f0eef7" }}>
-                    <span style={{ background: BL, color: BM, borderRadius: 5, padding: "2px 9px", fontSize: 12, fontWeight: 600, fontFamily: F }}>{e.ruleSet}</span>
-                  </td>
-                  <TD muted>{e.start}</TD><TD muted>{e.lastPaid}</TD>
-                  <td style={{ padding: "12px 14px", borderBottom: "1px solid #f0eef7" }}>
-                    <button style={{ background: "none", border: `1.5px solid ${BR}`, borderRadius: 6, color: B, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: F, padding: "4px 12px" }}>View</button>
+                  <TD muted>{selectedEmployer?.name ?? "—"}</TD>
+                  <TD><JurTag j={e.jurisdiction}/></TD>
+                  <TD><Badge s={e.status}/></TD>
+                  <TD muted>{fmtDate(e.start_date)}</TD>
+                  <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
+                    <button onClick={()=>setEditingEmployee(e)}
+                      style={{background:"none",border:`1.5px solid ${BR}`,borderRadius:6,color:B,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:F,padding:"4px 12px"}}>
+                      Edit
+                    </button>
                   </td>
                 </tr>
               ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        )}
       </Card>
+
+      {showNewModal && (
+        <Modal title={`New Employee${selectedEmployer ? ` · ${selectedEmployer.name}` : ""}`} onClose={closeNew}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <FormField label="First Name">
+              <TextInput value={newValues.first_name} onChange={v=>setNewValues(p=>({...p,first_name:v}))} autoFocus />
+            </FormField>
+            <FormField label="Last Name">
+              <TextInput value={newValues.last_name} onChange={v=>setNewValues(p=>({...p,last_name:v}))} />
+            </FormField>
+            <FormField label="Jurisdiction">
+              <select value={newValues.jurisdiction} onChange={e=>setNewValues(p=>({...p,jurisdiction:e.target.value}))}
+                style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                <option value="NZ">🇳🇿 New Zealand</option>
+                <option value="AU">🇦🇺 Australia</option>
+              </select>
+            </FormField>
+            <FormField label="Start Date">
+              <TextInput type="date" value={newValues.start_date} onChange={v=>setNewValues(p=>({...p,start_date:v}))} />
+            </FormField>
+            <FormField label="Date of Birth" hint="optional">
+              <TextInput type="date" value={newValues.date_of_birth} onChange={v=>setNewValues(p=>({...p,date_of_birth:v}))} />
+            </FormField>
+            <FormField label={newValues.jurisdiction==="AU"?"TFN":"IRD Number"} hint="stored plaintext until Phase 6">
+              <TextInput value={newValues.tax_identifier} onChange={v=>setNewValues(p=>({...p,tax_identifier:v}))} placeholder={newValues.jurisdiction==="AU"?"123 456 782":"123-456-789"} />
+            </FormField>
+            <FormField label="Bank Account" hint="stored plaintext until Phase 6">
+              <TextInput value={newValues.bank_account} onChange={v=>setNewValues(p=>({...p,bank_account:v}))} placeholder={newValues.jurisdiction==="AU"?"BSB-Account":"00-0000-0000000-00"} />
+            </FormField>
+          </div>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={closeNew}>Cancel</Btn>
+            <Btn onClick={createEmployee}>{saving ? "Creating…" : "Create Employee"}</Btn>
+          </ModalActions>
+        </Modal>
+      )}
+
+      {editingEmployee && (
+        <EmployeeDetailModal
+          employee={editingEmployee}
+          onClose={()=>setEditingEmployee(null)}
+          onUpdated={updated=>{ setEmployees(prev=>prev.map(e=>e.id===updated.id?updated:e)); setEditingEmployee(updated); }}
+        />
+      )}
     </div>
   );
 }
@@ -920,36 +1354,106 @@ function LeaveRules() {
 }
 
 /* ── REPORTS ──────────────────────────────────────────────── */
+const DB_TABLES = [
+  { table:"bureaus",               label:"Bureaus" },
+  { table:"tenants",               label:"Tenants" },
+  { table:"tenant_jurisdictions",  label:"Tenant Jurisdictions" },
+  { table:"jurisdictions",         label:"Jurisdictions" },
+  { table:"users",                 label:"Users" },
+  { table:"tenant_memberships",    label:"Tenant Memberships" },
+  { table:"employees",             label:"Employees" },
+  { table:"pay_settings",          label:"Pay Settings" },
+  { table:"pay_schedules",         label:"Pay Schedules" },
+  { table:"pay_runs",              label:"Pay Runs" },
+  { table:"pay_run_items",         label:"Pay Run Items" },
+  { table:"pay_run_line_items",    label:"Pay Run Line Items" },
+  { table:"variable_pay_items",    label:"Variable Pay Items" },
+  { table:"calculation_snapshots", label:"Calculation Snapshots" },
+  { table:"rules",                 label:"Rules" },
+  { table:"rule_versions",         label:"Rule Versions" },
+  { table:"rule_overrides",        label:"Rule Overrides" },
+  { table:"timesheets",            label:"Timesheets" },
+  { table:"leave_types",           label:"Leave Types" },
+  { table:"leave_profiles",        label:"Leave Profiles" },
+  { table:"leave_profile_rules",   label:"Leave Profile Rules" },
+  { table:"leave_entitlements",    label:"Leave Entitlements" },
+  { table:"leave_transactions",    label:"Leave Transactions" },
+  { table:"leave_requests",        label:"Leave Requests" },
+  { table:"audit_log",             label:"Audit Log" },
+];
+
 function Reports({ jur, setJur }) {
-  const cards=[
-    {icon:"📊",title:"Payroll Summary",    desc:"Summary of all pay runs, gross and net totals by period"},
-    {icon:"🧾",title:"Tax Reports",        desc:"PAYE, PAYG and withholding reports for IRD and ATO filing"},
-    {icon:"🌿",title:"Leave Reports",      desc:"Leave balances, accruals and usage by employee"},
-    {icon:"👤",title:"Employee Earnings",  desc:"Individual earnings history and YTD totals"},
-    {icon:"📤",title:"Export Centre",      desc:"Download CSV, XLSX and filing format exports"},
-    {icon:"📋",title:"Compliance Reports", desc:"Regulatory compliance snapshots and audit exports"},
-  ];
+  const [downloading, setDownloading] = useState(null);
+  const [dlError, setDlError] = useState(null);
+
+  async function downloadTable(table) {
+    setDownloading(table);
+    setDlError(null);
+    try {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`${API_URL}/api/v1/admin/reports/${table}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${table}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setDlError(`Failed to download ${table}: ${e.message}`);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
         <div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: TX, letterSpacing: -.4, fontFamily: F }}>Reports</h2>
-          <p style={{ fontSize: 13.5, color: TM, marginTop: 4, fontFamily: F }}>
-            {jur === "ALL" ? "Generate and export payroll reports across all countries" : `Reports filtered for ${jur}`}
+          <h2 style={{ fontSize:20, fontWeight:700, color:TX, letterSpacing:-.4, fontFamily:F }}>Reports</h2>
+          <p style={{ fontSize:13.5, color:TM, marginTop:4, fontFamily:F }}>
+            Download any database table as a CSV file — opens directly in Excel.
           </p>
         </div>
-        <PageJurFilter jur={jur} setJur={setJur} />
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:18}}>
-        {cards.map(c=>(
-          <Card key={c.title} className="card-h" style={{padding:"24px",cursor:"pointer",transition:"all .18s"}}>
-            <div style={{fontSize:28,marginBottom:12}}>{c.icon}</div>
-            <div style={{fontSize:15,fontWeight:700,color:TX,fontFamily:F,marginBottom:6}}>{c.title}</div>
-            <div style={{fontSize:13,color:TM,fontFamily:F,lineHeight:1.5}}>{c.desc}</div>
-            {jur !== "ALL" && <div style={{ fontSize: 11.5, color: B, fontWeight: 600, fontFamily: F, marginTop: 8 }}>{jur} only</div>}
-            <div style={{marginTop:12,fontSize:13,color:B,fontWeight:600,fontFamily:F}}>Generate →</div>
-          </Card>
-        ))}
+
+      {dlError && (
+        <div style={{ background:RD.bg, color:RD.fg, borderRadius:8, padding:"10px 14px", fontSize:13, fontFamily:F, marginBottom:16 }}>
+          {dlError}
+        </div>
+      )}
+
+      <div style={{ marginBottom:8, fontSize:12, fontWeight:600, color:TM, fontFamily:F, letterSpacing:.5, textTransform:"uppercase" }}>
+        Database Tables
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))", gap:10 }}>
+        {DB_TABLES.map(({ table, label }) => {
+          const isLoading = downloading === table;
+          return (
+            <button
+              key={table}
+              onClick={() => downloadTable(table)}
+              disabled={!!downloading}
+              style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                gap:8, padding:"11px 14px",
+                background:WH, border:`1.5px solid ${BR}`, borderRadius:8,
+                cursor: downloading ? "wait" : "pointer",
+                fontFamily:F, fontSize:13, color:TX, fontWeight:500,
+                textAlign:"left", transition:"all .15s",
+                opacity: (downloading && !isLoading) ? 0.5 : 1,
+              }}
+            >
+              <span>{label}</span>
+              {isLoading
+                ? <span style={{ fontSize:11, color:TM }}>...</span>
+                : <Icon d={ICONS.download} size={14} color={B} />}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1079,8 +1583,402 @@ function RoleBanner({ role }) {
   );
 }
 
+/* ── CLIENTS PAGE (Bureaus & Employers) ───────────────────── */
+const COUNTRY_OPTIONS = [
+  { value: "",     label: "Select country…" },
+  { value: "NZ",   label: "🇳🇿 New Zealand" },
+  { value: "AU",   label: "🇦🇺 Australia" },
+  { value: "BOTH", label: "🌐 Both NZ & AU" },
+];
+
+function ClientForm({ values, onChange }) {
+  return (
+    <>
+      <FormField label="Client Name">
+        <TextInput value={values.name ?? ""} onChange={v => onChange("name", v)} placeholder="e.g. Pay The Nanny" autoFocus />
+      </FormField>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <FormField label="Country">
+          <select value={values.country ?? ""} onChange={e => onChange("country", e.target.value)}
+            style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+            {COUNTRY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Admin Email">
+          <TextInput value={values.admin_email ?? ""} onChange={v => onChange("admin_email", v)} placeholder="admin@example.com" />
+        </FormField>
+        <FormField label="Phone">
+          <TextInput value={values.phone ?? ""} onChange={v => onChange("phone", v)} placeholder="+64 9 123 4567" />
+        </FormField>
+        <FormField label="Website">
+          <TextInput value={values.website ?? ""} onChange={v => onChange("website", v)} placeholder="https://example.com" />
+        </FormField>
+      </div>
+    </>
+  );
+}
+
+function EmployerDetail({ employer, onClose, onUpdated }) {
+  const [tab,           setTab]           = useState("Details");
+  const [editValues,    setEditValues]    = useState({ name: employer.name, status: employer.status });
+  const [jurValues,     setJurValues]     = useState({ jurisdiction: "NZ", legal_entity_name: "", tax_id: "" });
+  const [jurisdictions, setJurisdictions] = useState([]);
+  const [saving,        setSaving]        = useState(false);
+  const [error,         setError]         = useState(null);
+
+  useEffect(() => { loadDetail(); }, []);
+
+  async function loadDetail() {
+    const res = await fetch(`${API_URL}/api/v1/tenants/${employer.id}`, { headers: apiHeaders() });
+    if (res.ok) { const data = await res.json(); setJurisdictions(data.jurisdictions ?? []); }
+  }
+
+  async function saveDetails() {
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/tenants/${employer.id}`, {
+        method: "PATCH",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(editValues),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to save"); return; }
+      onUpdated(data);
+    } finally { setSaving(false); }
+  }
+
+  async function addJurisdiction() {
+    setSaving(true); setError(null);
+    try {
+      const body = { jurisdiction: jurValues.jurisdiction };
+      if (jurValues.legal_entity_name) body.legal_entity_name = jurValues.legal_entity_name;
+      if (jurValues.tax_id)            body.tax_id = jurValues.tax_id;
+      const res = await fetch(`${API_URL}/api/v1/tenants/${employer.id}/jurisdictions`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to add jurisdiction"); return; }
+      setJurisdictions(prev => {
+        const idx = prev.findIndex(j => j.jurisdiction === data.jurisdiction);
+        return idx >= 0 ? prev.map((j,i) => i===idx ? data : j) : [...prev, data];
+      });
+      setJurValues({ jurisdiction: "NZ", legal_entity_name: "", tax_id: "" });
+    } finally { setSaving(false); }
+  }
+
+  const taxLabel = jurValues.jurisdiction === "AU" ? "ABN" : "NZBN";
+
+  return (
+    <Modal title={employer.name} onClose={onClose}>
+      <TabBar tabs={["Details","Jurisdictions"]} active={tab} setActive={setTab}/>
+      {tab === "Details" && (
+        <>
+          <FormField label="Employer Name">
+            <TextInput value={editValues.name} onChange={v => setEditValues(p=>({...p,name:v}))} />
+          </FormField>
+          <FormField label="Status">
+            <select value={editValues.status} onChange={e=>setEditValues(p=>({...p,status:e.target.value}))}
+              style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="closed">Closed</option>
+            </select>
+          </FormField>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Close</Btn>
+            <Btn onClick={saveDetails}>{saving ? "Saving…" : "Save Changes"}</Btn>
+          </ModalActions>
+        </>
+      )}
+      {tab === "Jurisdictions" && (
+        <>
+          {jurisdictions.length > 0 && (
+            <div style={{marginBottom:20}}>
+              {jurisdictions.map(j => (
+                <div key={j.jurisdiction} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"12px 0",borderBottom:`1px solid ${BR}`}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <JurTag j={j.jurisdiction}/>
+                      <span style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F}}>{j.legal_entity_name || "—"}</span>
+                    </div>
+                    <div style={{fontSize:12,color:TT,fontFamily:F}}>{j.jurisdiction==="AU"?"ABN":"NZBN"}: {j.tax_id || "Not set"}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{fontSize:12,fontWeight:700,color:TM,textTransform:"uppercase",letterSpacing:.5,fontFamily:F,marginBottom:12}}>
+            {jurisdictions.length > 0 ? "Update Jurisdiction" : "Add Jurisdiction"}
+          </div>
+          <FormField label="Jurisdiction">
+            <select value={jurValues.jurisdiction} onChange={e=>setJurValues(p=>({...p,jurisdiction:e.target.value}))}
+              style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+              <option value="NZ">🇳🇿 New Zealand</option>
+              <option value="AU">🇦🇺 Australia</option>
+            </select>
+          </FormField>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <FormField label="Legal Entity Name">
+              <TextInput value={jurValues.legal_entity_name} onChange={v=>setJurValues(p=>({...p,legal_entity_name:v}))} placeholder="Registered name" />
+            </FormField>
+            <FormField label={taxLabel} hint="encrypted in Phase 6">
+              <TextInput value={jurValues.tax_id} onChange={v=>setJurValues(p=>({...p,tax_id:v}))} placeholder={jurValues.jurisdiction==="AU"?"12 345 678 901":"9429000000000"} />
+            </FormField>
+          </div>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Close</Btn>
+            <Btn onClick={addJurisdiction}>{saving ? "Saving…" : "Save Jurisdiction"}</Btn>
+          </ModalActions>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function Clients() {
+  const [clients,          setClients]          = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [selectedClient,   setSelectedClient]   = useState(null);
+  const [employers,        setEmployers]        = useState([]);
+  const [employersLoading, setEmployersLoading] = useState(false);
+  const [showNewClient,    setShowNewClient]    = useState(false);
+  const [showEditClient,   setShowEditClient]   = useState(false);
+  const [showNewEmployer,  setShowNewEmployer]  = useState(false);
+  const [editingEmployer,  setEditingEmployer]  = useState(null);
+  const [newClientValues,  setNewClientValues]  = useState({name:"",country:"",admin_email:"",phone:"",website:""});
+  const [editClientValues, setEditClientValues] = useState({});
+  const [employerName,     setEmployerName]     = useState("");
+  const [employerSlug,     setEmployerSlug]     = useState("");
+  const [saving,           setSaving]           = useState(false);
+  const [error,            setError]            = useState(null);
+
+  useEffect(() => { loadClients(); }, []);
+  useEffect(() => { if (selectedClient) loadEmployers(selectedClient.id); }, [selectedClient]);
+
+  async function loadClients() {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/bureaus`, { headers: apiHeaders() });
+      if (res.ok) { const data = await res.json(); setClients(data); if (data.length > 0) setSelectedClient(data[0]); }
+    } finally { setLoading(false); }
+  }
+
+  async function loadEmployers(clientId) {
+    setEmployersLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/bureaus/${clientId}/tenants`, { headers: apiHeaders() });
+      if (res.ok) setEmployers(await res.json());
+    } finally { setEmployersLoading(false); }
+  }
+
+  function closeNewClient()   { setShowNewClient(false);   setNewClientValues({name:"",country:"",admin_email:"",phone:"",website:""}); setError(null); }
+  function closeEditClient()  { setShowEditClient(false);  setEditClientValues({});    setError(null); }
+  function closeNewEmployer() { setShowNewEmployer(false); setEmployerName(""); setEmployerSlug(""); setError(null); }
+
+  function openEditClient() {
+    setEditClientValues({
+      name:        selectedClient?.name        ?? "",
+      country:     selectedClient?.country     ?? "",
+      admin_email: selectedClient?.admin_email ?? "",
+      phone:       selectedClient?.phone       ?? "",
+      website:     selectedClient?.website     ?? "",
+    });
+    setShowEditClient(true); setError(null);
+  }
+
+  function handleEmployerNameChange(val) {
+    setEmployerName(val);
+    setEmployerSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+  }
+
+  async function createClient() {
+    setSaving(true); setError(null);
+    try {
+      const body = Object.fromEntries(Object.entries(newClientValues).filter(([,v]) => v !== ""));
+      const res = await fetch(`${API_URL}/api/v1/bureaus`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to create client"); return; }
+      setClients(prev => [data, ...prev]); setSelectedClient(data); setEmployers([]); closeNewClient();
+    } finally { setSaving(false); }
+  }
+
+  async function updateClient() {
+    if (!selectedClient) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/bureaus/${selectedClient.id}`, {
+        method: "PATCH",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(editClientValues),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to update client"); return; }
+      setClients(prev => prev.map(c => c.id === data.id ? data : c)); setSelectedClient(data); closeEditClient();
+    } finally { setSaving(false); }
+  }
+
+  async function createEmployer() {
+    if (!selectedClient) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/bureaus/${selectedClient.id}/tenants`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ name: employerName, slug: employerSlug }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to create employer"); return; }
+      setEmployers(prev => [data, ...prev]); closeNewEmployer();
+    } finally { setSaving(false); }
+  }
+
+  if (loading) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:240,color:TT,fontFamily:F,fontSize:14}}>Loading…</div>
+  );
+
+  return (
+    <div>
+      <SectionHead
+        title="Clients"
+        sub="Manage your clients and their employers"
+        actions={<Btn icon="plus" onClick={()=>{ setShowNewClient(true); setError(null); }}>New Client</Btn>}
+      />
+
+      {clients.length === 0 ? (
+        <Card style={{padding:48,textAlign:"center"}}>
+          <div style={{fontSize:36,opacity:.12,marginBottom:14}}>◎</div>
+          <div style={{fontSize:15,fontWeight:700,color:TT,fontFamily:F}}>No clients yet</div>
+          <div style={{fontSize:13,color:TT,fontFamily:F,marginTop:6}}>Create your first client to get started.</div>
+        </Card>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"240px 1fr",gap:20,alignItems:"start"}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:TT,letterSpacing:.6,textTransform:"uppercase",fontFamily:F,marginBottom:10}}>Clients</div>
+            {clients.map(c => (
+              <div key={c.id} onClick={()=>setSelectedClient(c)} className="card-h"
+                style={{padding:"13px 16px",borderRadius:9,marginBottom:8,cursor:"pointer",
+                  background:selectedClient?.id===c.id?BL:WH,
+                  border:`1.5px solid ${selectedClient?.id===c.id?B:BR}`,transition:"all .15s"}}>
+                <div style={{fontSize:13.5,fontWeight:600,color:selectedClient?.id===c.id?B:TX,fontFamily:F}}>{c.name}</div>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+                  {c.country && <JurTag j={c.country==="BOTH"?"ALL":c.country}/>}
+                  <span style={{fontSize:11.5,color:TT,fontFamily:F}}>{c.is_active?"Active":"Inactive"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {selectedClient && (
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:TX,fontFamily:F}}>{selectedClient.name}</div>
+                  <div style={{display:"flex",gap:16,marginTop:4}}>
+                    {selectedClient.admin_email && <span style={{fontSize:12.5,color:TM,fontFamily:F}}>✉ {selectedClient.admin_email}</span>}
+                    {selectedClient.phone       && <span style={{fontSize:12.5,color:TM,fontFamily:F}}>☎ {selectedClient.phone}</span>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <Btn ghost small onClick={openEditClient}>Edit Client</Btn>
+                  <Btn icon="plus" small onClick={()=>{ setShowNewEmployer(true); setError(null); }}>New Employer</Btn>
+                </div>
+              </div>
+
+              <div style={{fontSize:11,fontWeight:700,color:TT,letterSpacing:.6,textTransform:"uppercase",fontFamily:F,marginBottom:10}}>Employers</div>
+
+              {employersLoading ? (
+                <div style={{color:TT,fontFamily:F,fontSize:13,padding:20}}>Loading…</div>
+              ) : employers.length === 0 ? (
+                <Card style={{padding:32,textAlign:"center"}}>
+                  <div style={{fontSize:13.5,color:TT,fontFamily:F}}>No employers yet. Add the first one.</div>
+                </Card>
+              ) : (
+                <Card>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead><tr><TH>Name</TH><TH>Status</TH><TH>Created</TH><TH></TH></tr></thead>
+                    <tbody>
+                      {employers.map(e => (
+                        <tr key={e.id} className="trow">
+                          <TD bold>{e.name}</TD>
+                          <TD><Badge s={e.status}/></TD>
+                          <TD muted>{new Date(e.created_at).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"})}</TD>
+                          <TD>
+                            <button onClick={()=>setEditingEmployer(e)}
+                              style={{background:"none",border:`1px solid ${BR}`,borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,color:TM,cursor:"pointer",fontFamily:F}}>
+                              Edit
+                            </button>
+                          </TD>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Card>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showNewClient && (
+        <Modal title="New Client" onClose={closeNewClient}>
+          <ClientForm values={newClientValues} onChange={(k,v)=>setNewClientValues(p=>({...p,[k]:v}))} />
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={closeNewClient}>Cancel</Btn>
+            <Btn onClick={createClient}>{saving ? "Creating…" : "Create Client"}</Btn>
+          </ModalActions>
+        </Modal>
+      )}
+
+      {showEditClient && (
+        <Modal title={`Edit Client — ${selectedClient?.name}`} onClose={closeEditClient}>
+          <ClientForm values={editClientValues} onChange={(k,v)=>setEditClientValues(p=>({...p,[k]:v}))} />
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={closeEditClient}>Cancel</Btn>
+            <Btn onClick={updateClient}>{saving ? "Saving…" : "Save Changes"}</Btn>
+          </ModalActions>
+        </Modal>
+      )}
+
+      {showNewEmployer && (
+        <Modal title={`New Employer under ${selectedClient?.name}`} onClose={closeNewEmployer}>
+          <FormField label="Employer Name">
+            <TextInput value={employerName} onChange={handleEmployerNameChange} placeholder="e.g. Smith Family" autoFocus />
+          </FormField>
+          <FormField label="Slug" hint="auto-generated — edit if needed">
+            <TextInput value={employerSlug} onChange={setEmployerSlug} placeholder="e.g. smith-family" />
+          </FormField>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={closeNewEmployer}>Cancel</Btn>
+            <Btn onClick={createEmployer}>{saving ? "Creating…" : "Create Employer"}</Btn>
+          </ModalActions>
+        </Modal>
+      )}
+
+      {editingEmployer && (
+        <EmployerDetail
+          employer={editingEmployer}
+          onClose={()=>setEditingEmployer(null)}
+          onUpdated={updated=>{ setEmployers(prev=>prev.map(e=>e.id===updated.id?updated:e)); setEditingEmployer(updated); }}
+        />
+      )}
+    </div>
+  );
+}
+
 /* ── APP ROOT ─────────────────────────────────────────────── */
 export default function App() {
+  const { user, logout } = useAuth();
   const [page,      setPage]      = useState("dashboard");
   const [openMenu,  setOpenMenu]  = useState(null);
   const [jur,       setJur]       = useState("ALL");
@@ -1094,12 +1992,6 @@ export default function App() {
 
   const getActionEl = () => {
     if(page==="pay-runs")  return <Btn icon="plus">New Pay Run</Btn>;
-    if(page==="employees") return (
-      <div style={{display:"flex",gap:8}}>
-        <Btn ghost icon="upload">Import Employees</Btn>
-        <Btn icon="plus">Add New Employee</Btn>
-      </div>
-    );
     if(page==="rule-sets") return <Btn icon="plus">Add Rule Set</Btn>;
     if(page==="dashboard") return (
       <button onClick={()=>navigate("pay-runs")} style={{background:"none",border:`1.5px solid ${BR}`,borderRadius:7,padding:"7px 16px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:F,color:TM}}>
@@ -1115,12 +2007,13 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div style={{display:"flex",height:"100vh",fontFamily:F,background:BG,color:TX,overflow:"hidden"}}>
-        <Sidebar page={page} setPage={navigate} openMenu={openMenu} setOpenMenu={setOpenMenu}/>
+        <Sidebar page={page} setPage={navigate} openMenu={openMenu} setOpenMenu={setOpenMenu} user={user} onLogout={logout}/>
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <Topbar page={page} jur={jur} setJur={setJur} actionEl={getActionEl()} userRole={userRole} setUserRole={setUserRole}/>
           <RoleBanner role={userRole}/>
           <main style={{flex:1,overflowY:"auto",padding:"26px 28px",background:BG}}>
             {page==="dashboard"                    && <Dashboard setPage={navigate} jur={jur} setJur={setJur}/>}
+            {page==="clients"                      && <Clients/>}
             {page==="pay-runs"                     && <PayRuns jur={jur} setJur={setJur}/>}
             {page==="employees"                    && <Employees jur={jur} setJur={setJur}/>}
             {page==="rule-sets"                    && <RuleSets jur={jur} setJur={setJur}/>}
