@@ -537,13 +537,14 @@ export default function EmployeesPage() {
             <thead><tr><TH>Employee</TH><TH>Employer</TH><TH>Jurisdiction</TH><TH>Status</TH><TH>Start Date</TH><TH></TH></tr></thead>
             <tbody>
               {filtered.map(e => (
-                <tr key={e.id} className="trow">
+                <tr key={e.id} className="trow" onClick={()=>navigate(`/employees/${e.id}`)}
+                  style={{cursor:"pointer"}}>
                   <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <div style={{width:32,height:32,background:BL,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:B,fontFamily:F,flexShrink:0}}>
                         {e.first_name[0]}{e.last_name[0]}
                       </div>
-                      <span style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F}}>{e.first_name} {e.last_name}</span>
+                      <span style={{fontSize:13.5,fontWeight:600,color:B,fontFamily:F,textDecoration:"underline",textDecorationColor:"rgba(57,23,93,.25)"}}>{e.first_name} {e.last_name}</span>
                     </div>
                   </td>
                   <TD muted>{selectedEmployer?.name ?? "—"}</TD>
@@ -567,12 +568,6 @@ export default function EmployeesPage() {
                     })() : <Badge s={e.status}/>}
                   </td>
                   <TD muted>{fmtDate(e.start_date)}</TD>
-                  <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
-                    <button onClick={()=>navigate(`/employees/${e.id}`)}
-                      style={{background:"none",border:`1.5px solid ${BR}`,borderRadius:6,color:B,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:F,padding:"4px 12px"}}>
-                      Open
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>

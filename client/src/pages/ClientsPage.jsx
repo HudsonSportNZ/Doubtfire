@@ -417,7 +417,7 @@ export default function ClientsPage() {
               <div key={c.id} onClick={()=>navigate(`/clients/${c.id}`)} className="card-h"
                 style={{padding:"13px 16px",borderRadius:9,marginBottom:8,cursor:"pointer",
                   background:WH, border:`1.5px solid ${BR}`,transition:"all .15s"}}>
-                <div style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F}}>{c.name}</div>
+                <div style={{fontSize:13.5,fontWeight:600,color:B,fontFamily:F,textDecoration:"underline",textDecorationColor:"rgba(57,23,93,.25)"}}>{c.name}</div>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
                   {c.country && <JurTag j={c.country==="BOTH"?"ALL":c.country}/>}
                   <span style={{fontSize:11.5,color:TT,fontFamily:F}}>{c.is_active?"Active":"Inactive"}</span>
@@ -460,16 +460,13 @@ export default function ClientsPage() {
                     <thead><tr><TH>Name</TH><TH>Status</TH><TH>Created</TH><TH></TH></tr></thead>
                     <tbody>
                       {employers.map(e => (
-                        <tr key={e.id} className="trow">
-                          <TD bold>{e.name}</TD>
+                        <tr key={e.id} className="trow" onClick={()=>navigate(`/employers/${e.id}`)}
+                          style={{cursor:"pointer"}}>
+                          <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
+                            <span style={{fontSize:13.5,fontWeight:600,color:B,fontFamily:F,textDecoration:"underline",textDecorationColor:"rgba(57,23,93,.25)"}}>{e.name}</span>
+                          </td>
                           <TD><Badge s={e.status}/></TD>
                           <TD muted>{new Date(e.created_at).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"})}</TD>
-                          <TD>
-                            <button onClick={()=>navigate(`/employers/${e.id}`)}
-                              style={{background:"none",border:`1.5px solid ${BR}`,borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,color:B,cursor:"pointer",fontFamily:F}}>
-                              Open
-                            </button>
-                          </TD>
                         </tr>
                       ))}
                     </tbody>
