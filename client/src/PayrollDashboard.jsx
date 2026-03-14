@@ -910,7 +910,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
       <TabBar tabs={TABS} active={tab} setActive={t=>{ setTab(t); setError(null); }}/>
 
       {/* ── COMPLETION BANNER ── */}
-      {isDraft ? (
+      {missing.length > 0 ? (
         <div style={{background:AM.bg,border:`1.5px solid #f0c060`,borderRadius:10,padding:"14px 18px",marginBottom:16}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <div>
