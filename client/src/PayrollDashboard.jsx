@@ -396,6 +396,31 @@ function fmtDate(iso) {
   return `${d}/${m}/${y}`;
 }
 
+/* ── EMPLOYEE PROFILE COMPLETION ─────────────────────────── */
+// All fields required for an employee to become Active (except date_of_birth + job_title)
+const REQUIRED_FIELDS = [
+  { key: 'title',                      label: 'Title',           tab: 'General'     },
+  { key: 'email',                      label: 'Email',           tab: 'General'     },
+  { key: 'mobile_phone',               label: 'Mobile phone',    tab: 'General'     },
+  { key: 'residential_street_address', label: 'Street address',  tab: 'General'     },
+  { key: 'residential_city',           label: 'City',            tab: 'General'     },
+  { key: 'residential_region',         label: 'Region',          tab: 'General'     },
+  { key: 'residential_post_code',      label: 'Post code',       tab: 'General'     },
+  { key: 'residential_country',        label: 'Country',         tab: 'General'     },
+  { key: 'employment_type',            label: 'Employment type', tab: 'Employment'  },
+  { key: 'leave_profile_id',           label: 'Leave template',  tab: 'Employment'  },
+  { key: 'bank_name',                  label: 'Bank name',       tab: 'Payments'    },
+  { key: 'bank_account_number',        label: 'Account number',  tab: 'Payments'    },
+  { key: 'bank_account_name',          label: 'Account name',    tab: 'Payments'    },
+  { key: 'tax_identifier',             label: 'IRD number',      tab: 'Tax'         },
+  { key: 'tax_code',                   label: 'Tax code',        tab: 'Tax'         },
+];
+function getMissingFields(emp, hasPaySettings) {
+  const missing = REQUIRED_FIELDS.filter(f => !emp[f.key]);
+  if (!hasPaySettings) missing.push({ key: 'pay_rate', label: 'Pay rate', tab: 'Pay Settings' });
+  return missing;
+}
+
 /* ── NAV STRUCTURE ────────────────────────────────────────── */
 const NAV = [
   { id:"dashboard", label:"Dashboard",     iconKey:"dashboard" },
@@ -738,6 +763,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
   const [tab, setTab] = useState("General");
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
+  const [currentEmp, setCurrentEmp] = useState(employee); // tracks saved state for completion
 
   const [gen, setGen] = useState({
     title:                      employee.title ?? "",
@@ -757,12 +783,13 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
   });
 
   const [emp, setEmp] = useState({
-    start_date:      employee.start_date ? String(employee.start_date).split("T")[0] : "",
-    employment_type: employee.employment_type ?? "",
-    job_title:       employee.job_title ?? "",
-    status:          employee.status ?? "active",
-    end_date:        employee.end_date ? String(employee.end_date).split("T")[0] : "",
-    pay_schedule_id: employee.pay_schedule_id ?? "",
+    start_date:        employee.start_date ? String(employee.start_date).split("T")[0] : "",
+    employment_type:   employee.employment_type ?? "",
+    job_title:         employee.job_title ?? "",
+    status:            employee.status ?? "draft",
+    end_date:          employee.end_date ? String(employee.end_date).split("T")[0] : "",
+    pay_schedule_id:   employee.pay_schedule_id ?? "",
+    leave_profile_id:  employee.leave_profile_id ?? "",
     automatically_pay: employee.automatically_pay ?? false,
   });
 
@@ -782,19 +809,25 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
       ? Number(employee.kiwisaver_employer_rate).toFixed(4) : "0.0300",
   });
 
-  const [paySettings, setPaySettings] = useState([]);
-  const [showPayForm, setShowPayForm] = useState(false);
-  const [payValues,   setPayValues]   = useState({
+  const [paySettings,   setPaySettings]   = useState([]);
+  const [showPayForm,   setShowPayForm]   = useState(false);
+  const [payValues,     setPayValues]     = useState({
     pay_type:"hourly", pay_rate:"", pay_frequency:"weekly",
     tax_code:"M", hours_per_week:"", effective_from:"",
     kiwisaver_rate:"0.0300", kiwisaver_opted_out:false,
   });
+  const [leaveProfiles, setLeaveProfiles] = useState([]);
 
-  useEffect(() => { loadPaySettings(); }, []);
+  useEffect(() => { loadPaySettings(); loadLeaveProfiles(); }, []);
 
   async function loadPaySettings() {
     const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}/pay-settings`, { headers: apiHeaders() });
     if (res.ok) setPaySettings(await res.json());
+  }
+
+  async function loadLeaveProfiles() {
+    const res = await fetch(`${API_URL}/api/v1/tenants/${employee.tenant_id}/leave-profiles`, { headers: apiHeaders() });
+    if (res.ok) setLeaveProfiles(await res.json());
   }
 
   async function doPatch(body) {
@@ -807,8 +840,19 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
       });
       const data = await res.json();
       if (!res.ok) { setError(data?.error?.message || "Failed to save"); return; }
+      setCurrentEmp(data);
       onUpdated(data);
     } finally { setSaving(false); }
+  }
+
+  async function activateEmployee() {
+    const missing = getMissingFields(currentEmp, paySettings.length > 0);
+    if (missing.length > 0) {
+      setTab(missing[0].tab);
+      setError(`Complete this section: ${missing.filter(f=>f.tab===missing[0].tab).map(f=>f.label).join(", ")}`);
+      return;
+    }
+    await doPatch({ status: "active" });
   }
 
   async function addPaySettings() {
@@ -839,6 +883,12 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
   const selSt = {width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH};
   const TABS = ["General","Employment","Payments","Tax","Pay Settings"];
 
+  // Completion tracking (based on last-saved state)
+  const missing = getMissingFields(currentEmp, paySettings.length > 0);
+  const isDraft = currentEmp.status === "draft";
+  const completionTotal = REQUIRED_FIELDS.length + 1;
+  const completionPct = Math.round(((completionTotal - missing.length) / completionTotal) * 100);
+
   return (
     <Modal title={
       <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -850,7 +900,49 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
       </div>
     } onClose={onClose} maxWidth={700}>
       <TabBar tabs={TABS} active={tab} setActive={t=>{ setTab(t); setError(null); }}/>
-      <div style={{maxHeight:"62vh",overflowY:"auto",paddingRight:2}}>
+
+      {/* ── COMPLETION BANNER ── */}
+      {isDraft ? (
+        <div style={{background:AM.bg,border:`1.5px solid #f0c060`,borderRadius:10,padding:"14px 18px",marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <div>
+              <span style={{fontSize:13.5,fontWeight:700,color:AM.fg,fontFamily:F}}>Profile incomplete — {completionPct}% done</span>
+              <span style={{fontSize:12.5,color:AM.fg,fontFamily:F,opacity:.75,marginLeft:8}}>{missing.length} field{missing.length!==1?"s":""} remaining</span>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div style={{background:"#f0d890",borderRadius:99,height:6,marginBottom:12,overflow:"hidden"}}>
+            <div style={{width:`${completionPct}%`,height:"100%",background:AM.fg,borderRadius:99,transition:"width .4s"}}/>
+          </div>
+          {/* Missing field chips — grouped by tab */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {["General","Employment","Payments","Tax","Pay Settings"].map(t=>{
+              const inTab = missing.filter(f=>f.tab===t);
+              if (!inTab.length) return null;
+              return (
+                <button key={t} onClick={()=>{ setTab(t); setError(null); }}
+                  style={{background:"#fdf4e3",border:`1.5px solid #f0c060`,borderRadius:6,padding:"3px 10px",
+                    fontSize:11.5,fontWeight:700,color:AM.fg,cursor:"pointer",fontFamily:F,display:"flex",alignItems:"center",gap:5}}>
+                  {t}
+                  <span style={{background:AM.fg,color:"#fff",borderRadius:99,fontSize:10,fontWeight:800,padding:"1px 6px",lineHeight:1.4}}>
+                    {inTab.length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{background:GN.bg,border:`1.5px solid #7bcf9a`,borderRadius:10,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:13.5,fontWeight:700,color:GN.fg,fontFamily:F}}>Profile complete</span>
+          {currentEmp.status === "active"
+            ? <span style={{fontSize:13,color:GN.fg,fontFamily:F,opacity:.75}}>Employee is active</span>
+            : <Btn onClick={activateEmployee}>{saving?"Activating…":"Activate Employee"}</Btn>
+          }
+        </div>
+      )}
+
+      <div style={{maxHeight:"56vh",overflowY:"auto",paddingRight:2}}>
 
       {/* ── GENERAL ── */}
       {tab === "General" && (
@@ -882,14 +974,14 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
             <FormField label="External ID" hint="optional">
               <TextInput value={gen.external_id} onChange={v=>setGen(p=>({...p,external_id:v}))} placeholder="Payroll reference" />
             </FormField>
-            <FormField label="Email" hint="optional">
+            <FormField label="Email">
               <TextInput type="email" value={gen.email} onChange={v=>setGen(p=>({...p,email:v}))} />
             </FormField>
-            <FormField label="Mobile Phone" hint="optional">
+            <FormField label="Mobile Phone">
               <TextInput value={gen.mobile_phone} onChange={v=>setGen(p=>({...p,mobile_phone:v}))} />
             </FormField>
           </div>
-          <FormField label="Street Address" hint="optional">
+          <FormField label="Street Address">
             <TextInput value={gen.residential_street_address} onChange={v=>setGen(p=>({...p,residential_street_address:v}))} />
           </FormField>
           <FormField label="Address Line 2" hint="optional">
@@ -906,7 +998,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
               <TextInput value={gen.residential_post_code} onChange={v=>setGen(p=>({...p,residential_post_code:v}))} />
             </FormField>
             <FormField label="Country">
-              <TextInput value={gen.residential_country} onChange={v=>setGen(p=>({...p,residential_country:v}))} placeholder={isNZ?"New Zealand":"Australia"} />
+              <TextInput value={gen.residential_country} onChange={v=>setGen(p=>({...p,residential_country:v}))} placeholder={isNZ?"New Zealand (required)":"Australia (required)"} />
             </FormField>
           </div>
           {error && <ErrorMsg>{error}</ErrorMsg>}
@@ -943,13 +1035,19 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
             </FormField>
             <FormField label="Status">
               <select value={emp.status} onChange={e=>setEmp(p=>({...p,status:e.target.value}))} style={selSt}>
+                <option value="draft">Draft</option>
                 <option value="active">Active</option>
-                <option value="on_leave">On Leave</option>
                 <option value="terminated">Terminated</option>
               </select>
             </FormField>
             <FormField label="End Date" hint="if terminated">
               <TextInput type="date" value={emp.end_date} onChange={v=>setEmp(p=>({...p,end_date:v}))} />
+            </FormField>
+            <FormField label="Leave Template">
+              <select value={emp.leave_profile_id} onChange={e=>setEmp(p=>({...p,leave_profile_id:e.target.value}))} style={selSt}>
+                <option value="">— Select —</option>
+                {leaveProfiles.map(lp=><option key={lp.id} value={lp.id}>{lp.name}</option>)}
+              </select>
             </FormField>
           </div>
           {paySettings.length > 0 && (
@@ -981,14 +1079,14 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
       {/* ── PAYMENTS ── */}
       {tab === "Payments" && (
         <>
-          <FormField label="Bank Name" hint="optional">
+          <FormField label="Bank Name">
             <TextInput value={pay.bank_name} onChange={v=>setPay(p=>({...p,bank_name:v}))} placeholder="e.g. ANZ" />
           </FormField>
-          <FormField label={isNZ?"Account Number":"BSB-Account"} hint="optional">
+          <FormField label={isNZ?"Account Number":"BSB-Account"}>
             <TextInput value={pay.bank_account_number} onChange={v=>setPay(p=>({...p,bank_account_number:v}))}
               placeholder={isNZ?"00-0000-0000000-00":"123456-12345678"} />
           </FormField>
-          <FormField label="Account Name" hint="optional">
+          <FormField label="Account Name">
             <TextInput value={pay.bank_account_name} onChange={v=>setPay(p=>({...p,bank_account_name:v}))} />
           </FormField>
           {error && <ErrorMsg>{error}</ErrorMsg>}
@@ -1005,7 +1103,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
           {isNZ ? (
             <>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <FormField label="IRD Number" hint="optional">
+                <FormField label="IRD Number">
                   <TextInput value={taxVals.tax_identifier} onChange={v=>setTaxVals(p=>({...p,tax_identifier:v}))} placeholder="123-456-789" />
                 </FormField>
                 <FormField label="Tax Code">
@@ -1157,8 +1255,7 @@ function Employees() {
   const [showNewModal,     setShowNewModal]      = useState(false);
   const [editingEmployee,  setEditingEmployee]  = useState(null);
   const [newValues,        setNewValues]        = useState({
-    first_name:"", last_name:"", start_date:"",
-    date_of_birth:"", tax_identifier:"", bank_account:"", pay_schedule_id:"",
+    first_name:"", last_name:"", email:"", tax_identifier:"", pay_schedule_id:"",
   });
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState(null);
@@ -1204,21 +1301,24 @@ function Employees() {
     else setPaySchedules([]);
   }
 
-  const EMPTY_NEW = { first_name:"", last_name:"", start_date:"", date_of_birth:"", tax_identifier:"", bank_account:"", pay_schedule_id:"" };
+  const EMPTY_NEW = { first_name:"", last_name:"", email:"", tax_identifier:"", pay_schedule_id:"" };
   function closeNew() { setShowNewModal(false); setNewValues(EMPTY_NEW); setError(null); }
 
   async function createEmployee() {
     if (!selectedEmployer) return;
+    if (!newValues.first_name || !newValues.last_name) { setError("First and last name are required."); return; }
+    if (!newValues.email) { setError("Email is required."); return; }
+    if (!newValues.tax_identifier) { setError(`${selectedEmployer?.jurisdiction==="AU"?"TFN":"IRD Number"} is required.`); return; }
     if (!newValues.pay_schedule_id) { setError("Please select a pay schedule."); return; }
     setSaving(true); setError(null);
     try {
       const body = {
-        first_name: newValues.first_name, last_name: newValues.last_name,
-        start_date: newValues.start_date, pay_schedule_id: newValues.pay_schedule_id,
+        first_name: newValues.first_name,
+        last_name: newValues.last_name,
+        email: newValues.email,
+        tax_identifier: newValues.tax_identifier,
+        pay_schedule_id: newValues.pay_schedule_id,
       };
-      if (newValues.date_of_birth)  body.date_of_birth  = newValues.date_of_birth;
-      if (newValues.tax_identifier) body.tax_identifier = newValues.tax_identifier;
-      if (newValues.bank_account)   body.bank_account   = newValues.bank_account;
       const res = await fetch(`${API_URL}/api/v1/tenants/${selectedEmployer.id}/employees`, {
         method: "POST",
         headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
@@ -1273,6 +1373,7 @@ function Employees() {
 
         {/* Status */}
         <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={selStyle}>
+          <option value="draft">Draft</option>
           <option value="active">Active</option>
           <option value="terminated">Terminated</option>
           <option value="all">All Statuses</option>
@@ -1317,7 +1418,24 @@ function Employees() {
                   </td>
                   <TD muted>{selectedEmployer?.name ?? "—"}</TD>
                   <TD><JurTag j={e.jurisdiction}/></TD>
-                  <TD><Badge s={e.status}/></TD>
+                  <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
+                    {e.status === "draft" ? (() => {
+                      const m = getMissingFields(e, (e.pay_settings_count ?? 0) > 0);
+                      const total = REQUIRED_FIELDS.length + 1;
+                      const pct = Math.round(((total - m.length) / total) * 100);
+                      return (
+                        <div style={{minWidth:120}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                            <span style={{fontSize:11.5,fontWeight:700,color:AM.fg,fontFamily:F,textTransform:"uppercase",letterSpacing:.4}}>Draft</span>
+                            <span style={{fontSize:11,color:AM.fg,fontFamily:F,opacity:.8}}>{pct}%</span>
+                          </div>
+                          <div style={{background:"#f0d890",borderRadius:99,height:4,overflow:"hidden"}}>
+                            <div style={{width:`${pct}%`,height:"100%",background:AM.fg,borderRadius:99}}/>
+                          </div>
+                        </div>
+                      );
+                    })() : <Badge s={e.status}/>}
+                  </td>
                   <TD muted>{fmtDate(e.start_date)}</TD>
                   <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
                     <button onClick={()=>setEditingEmployee(e)}
@@ -1343,6 +1461,9 @@ function Employees() {
             </span>
           </div>
 
+          <div style={{background:BL,borderLeft:`3px solid ${B}`,borderRadius:7,padding:"10px 14px",marginBottom:16,fontSize:12.5,color:BM,fontFamily:F}}>
+            Enter the basics now — you can complete the full profile after adding the employee.
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <FormField label="First Name">
               <TextInput value={newValues.first_name} onChange={v=>setNewValues(p=>({...p,first_name:v}))} autoFocus />
@@ -1350,13 +1471,16 @@ function Employees() {
             <FormField label="Last Name">
               <TextInput value={newValues.last_name} onChange={v=>setNewValues(p=>({...p,last_name:v}))} />
             </FormField>
-            <FormField label="Start Date">
-              <TextInput type="date" value={newValues.start_date} onChange={v=>setNewValues(p=>({...p,start_date:v}))} />
+            <FormField label="Email">
+              <TextInput type="email" value={newValues.email} onChange={v=>setNewValues(p=>({...p,email:v}))} />
+            </FormField>
+            <FormField label={selectedEmployer?.jurisdiction==="AU"?"TFN":"IRD Number"}>
+              <TextInput value={newValues.tax_identifier} onChange={v=>setNewValues(p=>({...p,tax_identifier:v}))} placeholder={selectedEmployer?.jurisdiction==="AU"?"123 456 782":"123-456-789"} />
             </FormField>
           </div>
 
           {/* Pay Schedule — full width, required */}
-          <FormField label="Pay Schedule" hint="required">
+          <FormField label="Pay Schedule">
             {paySchedules.length === 0 ? (
               <div style={{background:AM.bg,color:AM.fg,borderRadius:7,padding:"9px 13px",fontSize:13,fontFamily:F}}>
                 No pay schedules set up for this employer yet. Go to Clients → Edit Employer → Pay Schedules to add one first.
@@ -1371,18 +1495,6 @@ function Employees() {
               </select>
             )}
           </FormField>
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <FormField label="Date of Birth" hint="optional">
-              <TextInput type="date" value={newValues.date_of_birth} onChange={v=>setNewValues(p=>({...p,date_of_birth:v}))} />
-            </FormField>
-            <FormField label={selectedEmployer?.jurisdiction==="AU"?"TFN":"IRD Number"} hint="optional">
-              <TextInput value={newValues.tax_identifier} onChange={v=>setNewValues(p=>({...p,tax_identifier:v}))} placeholder={selectedEmployer?.jurisdiction==="AU"?"123 456 782":"123-456-789"} />
-            </FormField>
-            <FormField label="Bank Account" hint="optional">
-              <TextInput value={newValues.bank_account} onChange={v=>setNewValues(p=>({...p,bank_account:v}))} placeholder={selectedEmployer?.jurisdiction==="AU"?"BSB-Account":"00-0000-0000000-00"} />
-            </FormField>
-          </div>
           {error && <ErrorMsg>{error}</ErrorMsg>}
           <ModalActions>
             <Btn ghost onClick={closeNew}>Cancel</Btn>

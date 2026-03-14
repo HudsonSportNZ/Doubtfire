@@ -23,16 +23,17 @@ const updateTenantSchema = z.object({
 });
 
 const createEmployeeSchema = z.object({
-  first_name:      z.string().min(1).max(100),
-  last_name:       z.string().min(1).max(100),
-  // jurisdiction is derived from the employer (tenant) — not passed by the client
-  start_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'start_date must be YYYY-MM-DD'),
+  // Required at creation — minimum viable profile
+  first_name:     z.string().min(1).max(100),
+  last_name:      z.string().min(1).max(100),
+  email:          z.string().email().max(255),
+  // TODO Phase 6: encrypt tax_identifier at app layer before storage
+  tax_identifier: z.string().max(20),
+  pay_schedule_id: z.string().uuid({ message: 'A pay schedule is required' }),
+  // Optional at creation — filled during profile completion (status: draft → active)
+  start_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   date_of_birth:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  // TODO Phase 6: encrypt tax_identifier and bank_account at app layer before storage
-  tax_identifier:  z.string().max(20).optional(),
-  bank_account:    z.string().max(50).optional(),
   leave_profile_id: z.string().uuid().optional(),
-  pay_schedule_id:  z.string().uuid({ message: 'A pay schedule is required' }),
 });
 
 const addJurisdictionSchema = z.object({
@@ -105,6 +106,8 @@ interface EmployeeRow {
   kiwisaver_member: boolean;
   kiwisaver_employee_rate: string | null;
   kiwisaver_employer_rate: string | null;
+  // Computed (list query only)
+  pay_settings_count?: number;
 }
 
 interface JurisdictionRow {
@@ -318,7 +321,10 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const params: unknown[] = [id];
-    let sql = `SELECT ${EMPLOYEE_COLS} FROM employees WHERE tenant_id = $1 AND deleted_at IS NULL`;
+    let sql = `
+      SELECT ${EMPLOYEE_COLS},
+        (SELECT COUNT(*)::int FROM pay_settings ps WHERE ps.employee_id = employees.id) AS pay_settings_count
+      FROM employees WHERE tenant_id = $1 AND deleted_at IS NULL`;
 
     if (status) {
       params.push(status);
@@ -368,24 +374,49 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const { first_name, last_name, start_date, date_of_birth,
-            tax_identifier, bank_account, leave_profile_id, pay_schedule_id } = parsed.data;
+    const { first_name, last_name, email, tax_identifier, pay_schedule_id,
+            start_date, date_of_birth, leave_profile_id } = parsed.data;
 
     const id = uuidv4();
     const rows = await query<EmployeeRow>(
       `INSERT INTO employees
-         (id, tenant_id, first_name, last_name, jurisdiction, start_date,
-          date_of_birth, tax_identifier, bank_account, leave_profile_id, pay_schedule_id)
+         (id, tenant_id, first_name, last_name, jurisdiction, email, tax_identifier,
+          pay_schedule_id, start_date, date_of_birth, leave_profile_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING ${EMPLOYEE_COLS}`,
-      [id, tenantId, first_name, last_name, empJurisdiction, start_date,
-       date_of_birth ?? null, tax_identifier ?? null, bank_account ?? null,
-       leave_profile_id ?? null, pay_schedule_id ?? null],
+      [id, tenantId, first_name, last_name, empJurisdiction, email, tax_identifier,
+       pay_schedule_id, start_date ?? null, date_of_birth ?? null, leave_profile_id ?? null],
     );
 
     const responseBody = rows[0];
     await saveIdempotency(idempotencyKey, 'POST', path, 201, responseBody);
     return reply.status(201).send(responseBody);
+  });
+
+  /**
+   * GET /api/v1/tenants/:id/leave-profiles
+   * List leave profiles available for this tenant's jurisdiction.
+   * Leave profiles are system-level and scoped by jurisdiction (NZ or AU).
+   */
+  fastify.get('/:id/leave-profiles', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const tenantRows = await query<{ id: string; jurisdiction: string | null }>(
+      `SELECT id, jurisdiction FROM tenants WHERE id = $1`, [id],
+    );
+    if (tenantRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Tenant not found' } });
+    }
+
+    const jurisdiction = tenantRows[0].jurisdiction;
+    if (!jurisdiction) return reply.send([]);
+
+    const rows = await query<{ id: string; name: string; is_default: boolean }>(
+      `SELECT id, name, is_default FROM leave_profiles
+       WHERE jurisdiction = $1 ORDER BY is_default DESC, name`,
+      [jurisdiction],
+    );
+    return reply.send(rows);
   });
 
   /**
