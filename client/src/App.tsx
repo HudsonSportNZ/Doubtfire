@@ -11,6 +11,9 @@ import RuleSetsPage from './pages/RuleSetsPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import PlaceholderPage from './pages/PlaceholderPage';
+import EmployeeDetailPage from './pages/EmployeeDetailPage';
+import EmployerDetailPage from './pages/EmployerDetailPage';
+import ClientDetailPage from './pages/ClientDetailPage';
 
 export default function App() {
   return (
@@ -25,6 +28,9 @@ export default function App() {
             <Route path="/clients"     element={<ClientsPage />} />
             <Route path="/pay-runs"    element={<PayRunsPage />} />
             <Route path="/employees"   element={<EmployeesPage />} />
+            <Route path="/employees/:id" element={<EmployeeDetailPage />} />
+            <Route path="/clients/:id"   element={<ClientDetailPage />} />
+            <Route path="/employers/:id" element={<EmployerDetailPage />} />
             <Route path="/timesheets"  element={<PlaceholderPage />} />
             <Route path="/expenses"    element={<PlaceholderPage />} />
             <Route path="/leave"       element={<PlaceholderPage />} />

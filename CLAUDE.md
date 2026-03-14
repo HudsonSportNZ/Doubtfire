@@ -128,6 +128,15 @@ Phase 5 — Pay Run Engine
 - Migrations 0024–0038 applied locally and to Railway
 - New employer modal includes NZ/AU jurisdiction selector
 - All dates displayed as DD/MM/YYYY in UI
+- React Router v6 with full URL routing — every entity has a shareable deep-link URL
+  - `/clients` → ClientsPage (list)
+  - `/clients/:id` → ClientDetailPage (bureau detail + employer list)
+  - `/employers/:id` → EmployerDetailPage (tenant detail, jurisdictions, pay schedules)
+  - `/employees` → EmployeesPage (list)
+  - `/employees/:id` → EmployeeDetailPage (full profile: General, Employment, Payments, Tax, Pay Settings)
+  - Sidebar uses path-prefix matching — dynamic sub-routes highlight correct nav item
+  - `/employers/:id` highlights the Clients nav item (employers live under clients)
+  - Topbar derives label from PATH_LABELS or regex pattern for dynamic routes
 
 ### Phase 4.2 plan — Tax Details & Entity Enrichment (Next Session)
 Complete tax, financial, and compliance fields across clients, employers, and employees.

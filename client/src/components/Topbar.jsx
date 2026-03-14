@@ -5,7 +5,13 @@ import { Icon, JurisdictionDropdown } from "./ui";
 
 export function Topbar({ jur, setJur, actionEl, userRole, setUserRole }) {
   const location = useLocation();
-  const label = PATH_LABELS[location.pathname] || location.pathname.replace("/", "");
+  const path = location.pathname;
+  // Handle dynamic routes not in PATH_LABELS
+  const dynamicLabel =
+    /^\/employees\//.test(path) ? "Employee" :
+    /^\/employers\//.test(path) ? "Employer" :
+    /^\/clients\//.test(path)   ? "Client"   : null;
+  const label = dynamicLabel || PATH_LABELS[path] || path.replace("/", "");
 
   return (
     <>

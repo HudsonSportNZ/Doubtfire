@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { B, BL, BM, TX, TM, TT, WH, BR, SU, GN, AM, RD, F } from "../lib/constants";
 import { ICONS, FREQ_LABELS } from "../lib/constants";
 import { API_URL, apiHeaders, fmtDate, REQUIRED_FIELDS, getMissingFields } from "../lib/api";
@@ -410,6 +411,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
 
 /* ── EMPLOYEES PAGE ───────────────────────────────────────── */
 export default function EmployeesPage() {
+  const navigate = useNavigate();
   const [bureaus,          setBureaus]          = useState([]);
   const [selectedBureauId, setSelectedBureauId] = useState("all");
   const [allEmployers,     setAllEmployers]     = useState([]);
@@ -420,7 +422,6 @@ export default function EmployeesPage() {
   const [statusFilter,     setStatusFilter]     = useState("active");
   const [search,           setSearch]           = useState("");
   const [showNewModal,     setShowNewModal]      = useState(false);
-  const [editingEmployee,  setEditingEmployee]  = useState(null);
   const [newValues,        setNewValues]        = useState({ first_name:"", last_name:"", email:"", tax_identifier:"", pay_schedule_id:"" });
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState(null);
@@ -567,9 +568,9 @@ export default function EmployeesPage() {
                   </td>
                   <TD muted>{fmtDate(e.start_date)}</TD>
                   <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
-                    <button onClick={()=>setEditingEmployee(e)}
+                    <button onClick={()=>navigate(`/employees/${e.id}`)}
                       style={{background:"none",border:`1.5px solid ${BR}`,borderRadius:6,color:B,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:F,padding:"4px 12px"}}>
-                      Edit
+                      Open
                     </button>
                   </td>
                 </tr>
@@ -620,14 +621,6 @@ export default function EmployeesPage() {
         </Modal>
       )}
 
-      {editingEmployee && (
-        <EmployeeDetailModal
-          employee={editingEmployee}
-          onClose={()=>setEditingEmployee(null)}
-          onUpdated={updated=>{ setEmployees(prev=>prev.map(e=>e.id===updated.id?updated:e)); setEditingEmployee(updated); }}
-          paySchedules={paySchedules}
-        />
-      )}
     </div>
   );
 }

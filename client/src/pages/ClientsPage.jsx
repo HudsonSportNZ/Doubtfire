@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { B, BL, BM, TX, TM, TT, WH, BR, GN, AM, F } from "../lib/constants";
 import { FREQ_LABELS, FREQ_COLORS, ICONS } from "../lib/constants";
 import { API_URL, apiHeaders, fmtDate } from "../lib/api";
@@ -279,6 +280,7 @@ function SkeletonRows({ count = 4 }) {
 
 /* ── CLIENTS PAGE ─────────────────────────────────────────── */
 export default function ClientsPage() {
+  const navigate = useNavigate();
   const [clients,          setClients]          = useState([]);
   const [loading,          setLoading]          = useState(true);
   const [selectedClient,   setSelectedClient]   = useState(null);
@@ -287,7 +289,6 @@ export default function ClientsPage() {
   const [showNewClient,    setShowNewClient]    = useState(false);
   const [showEditClient,   setShowEditClient]   = useState(false);
   const [showNewEmployer,  setShowNewEmployer]  = useState(false);
-  const [editingEmployer,  setEditingEmployer]  = useState(null);
   const [newClientValues,  setNewClientValues]  = useState({name:"",country:"",admin_email:"",phone:"",website:""});
   const [editClientValues, setEditClientValues] = useState({});
   const [employerName,     setEmployerName]     = useState("");
@@ -413,11 +414,10 @@ export default function ClientsPage() {
           <div>
             <div style={{fontSize:11,fontWeight:700,color:TT,letterSpacing:.6,textTransform:"uppercase",fontFamily:F,marginBottom:10}}>Clients</div>
             {clients.map(c => (
-              <div key={c.id} onClick={()=>setSelectedClient(c)} className="card-h"
+              <div key={c.id} onClick={()=>navigate(`/clients/${c.id}`)} className="card-h"
                 style={{padding:"13px 16px",borderRadius:9,marginBottom:8,cursor:"pointer",
-                  background:selectedClient?.id===c.id?BL:WH,
-                  border:`1.5px solid ${selectedClient?.id===c.id?B:BR}`,transition:"all .15s"}}>
-                <div style={{fontSize:13.5,fontWeight:600,color:selectedClient?.id===c.id?B:TX,fontFamily:F}}>{c.name}</div>
+                  background:WH, border:`1.5px solid ${BR}`,transition:"all .15s"}}>
+                <div style={{fontSize:13.5,fontWeight:600,color:TX,fontFamily:F}}>{c.name}</div>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
                   {c.country && <JurTag j={c.country==="BOTH"?"ALL":c.country}/>}
                   <span style={{fontSize:11.5,color:TT,fontFamily:F}}>{c.is_active?"Active":"Inactive"}</span>
@@ -465,9 +465,9 @@ export default function ClientsPage() {
                           <TD><Badge s={e.status}/></TD>
                           <TD muted>{new Date(e.created_at).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"})}</TD>
                           <TD>
-                            <button onClick={()=>setEditingEmployer(e)}
-                              style={{background:"none",border:`1px solid ${BR}`,borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,color:TM,cursor:"pointer",fontFamily:F}}>
-                              Edit
+                            <button onClick={()=>navigate(`/employers/${e.id}`)}
+                              style={{background:"none",border:`1.5px solid ${BR}`,borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,color:B,cursor:"pointer",fontFamily:F}}>
+                              Open
                             </button>
                           </TD>
                         </tr>
@@ -525,13 +525,6 @@ export default function ClientsPage() {
         </Modal>
       )}
 
-      {editingEmployer && (
-        <EmployerDetail
-          employer={editingEmployer}
-          onClose={()=>setEditingEmployer(null)}
-          onUpdated={updated=>{ setEmployers(prev=>prev.map(e=>e.id===updated.id?updated:e)); setEditingEmployer(updated); }}
-        />
-      )}
     </div>
   );
 }

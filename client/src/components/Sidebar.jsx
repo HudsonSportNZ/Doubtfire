@@ -9,12 +9,24 @@ export default function Sidebar({ user, onLogout }) {
   const location  = useLocation();
   const path      = location.pathname;
 
+  // Match path: exact OR starts-with for dynamic sub-routes
+  // /employees/:id → employees, /employers/:id → clients (employers live under clients)
+  function matchesPath(itemPath) {
+    if (!itemPath) return false;
+    if (path === itemPath) return true;
+    // Dynamic sub-route: /employees/123 matches /employees
+    if (itemPath !== "/" && path.startsWith(itemPath + "/")) return true;
+    // /employers/:id → highlight Clients
+    if (itemPath === "/clients" && path.startsWith("/employers/")) return true;
+    return false;
+  }
+
   // Auto-open the parent group whose child matches the current path
-  const activeParent = NAV.find(n => n.children?.some(c => c.path === path));
+  const activeParent = NAV.find(n => n.children?.some(c => matchesPath(c.path)));
   const [openMenu, setOpenMenu] = useState(activeParent?.id ?? null);
 
   useEffect(() => {
-    const parent = NAV.find(n => n.children?.some(c => c.path === path));
+    const parent = NAV.find(n => n.children?.some(c => matchesPath(c.path)));
     if (parent) setOpenMenu(parent.id);
   }, [path]);
 
@@ -37,8 +49,8 @@ export default function Sidebar({ user, onLogout }) {
       <nav style={{flex:1,padding:"12px 10px",overflowY:"auto"}}>
         {NAV.map(n => {
           const isActive = n.children
-            ? n.children.some(c => c.path === path)
-            : path === n.path;
+            ? n.children.some(c => matchesPath(c.path))
+            : matchesPath(n.path);
           const isOpen   = openMenu === n.id;
           const iconPaths = ICONS[n.iconKey];
 
@@ -77,11 +89,11 @@ export default function Sidebar({ user, onLogout }) {
                       onClick={() => navigate(c.path)}
                       style={{
                         padding:"7px 12px",borderRadius:6,cursor:"pointer",
-                        fontSize:13,fontWeight:path===c.path?600:400,
-                        color:path===c.path?"#fff":"rgba(255,255,255,.58)",fontFamily:F,
-                        background:path===c.path?"rgba(255,255,255,.13)":"transparent",
+                        fontSize:13,fontWeight:matchesPath(c.path)?600:400,
+                        color:matchesPath(c.path)?"#fff":"rgba(255,255,255,.58)",fontFamily:F,
+                        background:matchesPath(c.path)?"rgba(255,255,255,.13)":"transparent",
                         marginBottom:1,transition:"background .15s",
-                        borderLeft:`2px solid ${path===c.path?"rgba(255,255,255,.4)":"rgba(255,255,255,.1)"}`,
+                        borderLeft:`2px solid ${matchesPath(c.path)?"rgba(255,255,255,.4)":"rgba(255,255,255,.1)"}`,
                         paddingLeft:14
                       }}
                     >
