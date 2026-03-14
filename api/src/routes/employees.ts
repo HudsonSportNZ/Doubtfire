@@ -5,16 +5,45 @@ import { query } from '../db/client';
 import { authenticate } from '../middleware/authenticate';
 
 const updateEmployeeSchema = z.object({
-  first_name:      z.string().min(1).max(100).optional(),
-  last_name:       z.string().min(1).max(100).optional(),
-  status:          z.enum(['active', 'terminated', 'on_leave']).optional(),
-  end_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  date_of_birth:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  // TODO Phase 6: encrypt tax_identifier and bank_account at app layer before storage
-  tax_identifier:  z.string().max(20).nullable().optional(),
-  bank_account:    z.string().max(50).nullable().optional(),
-  leave_profile_id: z.string().uuid().nullable().optional(),
-  pay_schedule_id:  z.string().uuid().nullable().optional(),
+  // General
+  title:                      z.string().max(20).nullable().optional(),
+  first_name:                 z.string().min(1).max(100).optional(),
+  middle_name:                z.string().max(100).nullable().optional(),
+  last_name:                  z.string().min(1).max(100).optional(),
+  date_of_birth:              z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  external_id:                z.string().max(100).nullable().optional(),
+  email:                      z.string().email().max(255).nullable().optional(),
+  mobile_phone:               z.string().max(30).nullable().optional(),
+  residential_street_address: z.string().max(255).nullable().optional(),
+  residential_address_line2:  z.string().max(255).nullable().optional(),
+  residential_city:           z.string().max(100).nullable().optional(),
+  residential_region:         z.string().max(100).nullable().optional(),
+  residential_post_code:      z.string().max(20).nullable().optional(),
+  residential_country:        z.string().max(100).nullable().optional(),
+
+  // Employment
+  start_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  employment_type:   z.enum(['full_time', 'part_time', 'casual']).nullable().optional(),
+  job_title:         z.string().max(200).nullable().optional(),
+  status:            z.enum(['active', 'terminated', 'on_leave']).optional(),
+  end_date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  pay_schedule_id:   z.string().uuid().nullable().optional(),
+  leave_profile_id:  z.string().uuid().nullable().optional(),
+  automatically_pay: z.boolean().optional(),
+
+  // Payments
+  bank_name:           z.string().max(100).nullable().optional(),
+  bank_account_number: z.string().max(50).nullable().optional(),
+  bank_account_name:   z.string().max(100).nullable().optional(),
+  bank_account:        z.string().max(50).nullable().optional(),  // legacy field
+
+  // Tax (NZ/AU)
+  // TODO Phase 6: encrypt tax_identifier at app layer before storage
+  tax_identifier:          z.string().max(20).nullable().optional(),
+  tax_code:                z.string().max(20).nullable().optional(),
+  kiwisaver_member:        z.boolean().optional(),
+  kiwisaver_employee_rate: z.string().regex(/^0(\.\d{1,4})?$/).nullable().optional(),
+  kiwisaver_employer_rate: z.string().regex(/^0(\.\d{1,4})?$/).nullable().optional(),
 });
 
 const createPaySettingsSchema = z.object({
@@ -24,25 +53,63 @@ const createPaySettingsSchema = z.object({
   tax_code:            z.string().min(1).max(20),
   effective_from:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'effective_from must be YYYY-MM-DD'),
   hours_per_week:      z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-  kiwisaver_rate:      z.string().regex(/^0(\.\d{1,4})?$/).optional(),  // NZ only; e.g. "0.0300"
+  kiwisaver_rate:      z.string().regex(/^0(\.\d{1,4})?$/).optional(),
   kiwisaver_opted_out: z.boolean().optional(),
 });
+
+// All columns returned by the employee endpoints
+const EMPLOYEE_COLS = `
+  id, tenant_id, jurisdiction, status, created_at,
+  title, first_name, middle_name, last_name, date_of_birth, external_id,
+  email, mobile_phone,
+  residential_street_address, residential_address_line2,
+  residential_city, residential_region, residential_post_code, residential_country,
+  start_date, end_date, employment_type, job_title, automatically_pay,
+  leave_profile_id, pay_schedule_id,
+  bank_name, bank_account_number, bank_account_name, bank_account,
+  tax_identifier, tax_code, kiwisaver_member, kiwisaver_employee_rate, kiwisaver_employer_rate
+`;
 
 interface EmployeeRow {
   id: string;
   tenant_id: string;
-  first_name: string;
-  last_name: string;
   jurisdiction: string;
+  status: string;
+  created_at: string;
+  // General
+  title: string | null;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  date_of_birth: string | null;
+  external_id: string | null;
+  email: string | null;
+  mobile_phone: string | null;
+  residential_street_address: string | null;
+  residential_address_line2: string | null;
+  residential_city: string | null;
+  residential_region: string | null;
+  residential_post_code: string | null;
+  residential_country: string | null;
+  // Employment
   start_date: string;
   end_date: string | null;
-  date_of_birth: string | null;
-  tax_identifier: string | null;
-  bank_account: string | null;
-  status: string;
+  employment_type: string | null;
+  job_title: string | null;
+  automatically_pay: boolean;
   leave_profile_id: string | null;
   pay_schedule_id: string | null;
-  created_at: string;
+  // Payments
+  bank_name: string | null;
+  bank_account_number: string | null;
+  bank_account_name: string | null;
+  bank_account: string | null;
+  // Tax
+  tax_identifier: string | null;
+  tax_code: string | null;
+  kiwisaver_member: boolean;
+  kiwisaver_employee_rate: string | null;
+  kiwisaver_employer_rate: string | null;
 }
 
 interface PaySettingsRow {
@@ -84,16 +151,13 @@ async function saveIdempotency(key: string, method: string, path: string, status
 export async function employeeRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /api/v1/employees/:id
-   * Get a single employee with their current pay settings.
+   * Get a single employee with their full profile and pay settings history.
    */
   fastify.get('/:id', { preHandler: [authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     const rows = await query<EmployeeRow>(
-      `SELECT id, tenant_id, first_name, last_name, jurisdiction, start_date, end_date,
-              date_of_birth, tax_identifier, bank_account, status,
-              leave_profile_id, pay_schedule_id, created_at
-       FROM employees WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${EMPLOYEE_COLS} FROM employees WHERE id = $1 AND deleted_at IS NULL`,
       [id],
     );
     if (rows.length === 0) {
@@ -112,7 +176,7 @@ export async function employeeRoutes(fastify: FastifyInstance): Promise<void> {
 
   /**
    * PATCH /api/v1/employees/:id
-   * Update employee details. Soft-delete via status=terminated + end_date.
+   * Update employee fields. Any subset of fields may be sent.
    */
   fastify.patch('/:id', { preHandler: [authenticate] }, async (request, reply) => {
     const idempotencyKey = request.headers['x-idempotency-key'] as string | undefined;
@@ -143,8 +207,17 @@ export async function employeeRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const data = parsed.data;
-    const fields = ['first_name','last_name','status','end_date','date_of_birth',
-                    'tax_identifier','bank_account','leave_profile_id','pay_schedule_id'] as const;
+    const fields = [
+      'title', 'first_name', 'middle_name', 'last_name', 'date_of_birth',
+      'external_id', 'email', 'mobile_phone',
+      'residential_street_address', 'residential_address_line2',
+      'residential_city', 'residential_region', 'residential_post_code', 'residential_country',
+      'start_date', 'employment_type', 'job_title', 'status', 'end_date',
+      'pay_schedule_id', 'leave_profile_id', 'automatically_pay',
+      'bank_name', 'bank_account_number', 'bank_account_name', 'bank_account',
+      'tax_identifier', 'tax_code', 'kiwisaver_member',
+      'kiwisaver_employee_rate', 'kiwisaver_employer_rate',
+    ] as const;
 
     if (fields.every(f => data[f] === undefined)) {
       return reply.status(400).send({
@@ -166,9 +239,7 @@ export async function employeeRoutes(fastify: FastifyInstance): Promise<void> {
 
     const rows = await query<EmployeeRow>(
       `UPDATE employees SET ${updates.join(', ')} WHERE id = $${paramIndex}
-       RETURNING id, tenant_id, first_name, last_name, jurisdiction, start_date, end_date,
-                 date_of_birth, tax_identifier, bank_account, status,
-                 leave_profile_id, pay_schedule_id, created_at`,
+       RETURNING ${EMPLOYEE_COLS}`,
       params,
     );
 
@@ -204,7 +275,6 @@ export async function employeeRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * POST /api/v1/employees/:id/pay-settings
    * Add a new effective-dated pay settings record.
-   * Each employee can have only one record per effective_from date.
    */
   fastify.post('/:id/pay-settings', { preHandler: [authenticate] }, async (request, reply) => {
     const idempotencyKey = request.headers['x-idempotency-key'] as string | undefined;

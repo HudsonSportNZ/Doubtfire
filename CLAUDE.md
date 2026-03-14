@@ -129,6 +129,46 @@ Phase 5 — Pay Run Engine
 - New employer modal includes NZ/AU jurisdiction selector
 - All dates displayed as DD/MM/YYYY in UI
 
+### Phase 4.2 plan — Tax Details & Entity Enrichment (Next Session)
+Complete tax, financial, and compliance fields across clients, employers, and employees.
+
+#### Clients (Bureaus)
+- ABN / NZBN — business registration number
+- GST/IRD registration number
+- Contact details: primary contact name, phone, address
+
+#### Employers (Tenants)
+- NZ: IRD number, PAYE frequency (twice-monthly / monthly), GST registration, WC levy number
+- AU: ABN, ACN, payroll tax state obligations, STP registration status
+- Physical address (for payday filing headers)
+- Payroll contact name + email (for IRD/ATO correspondence)
+
+#### Employees — NZ
+- IRD number (encrypted at rest — Phase 6, store plaintext with TODO for now)
+- Tax code (M, M SL, S, SH, ST, SA, CAE, EDW, NSW, WT, SB, SB SL)
+- KiwiSaver status: enrolled / opt-out / not eligible
+- KiwiSaver employee rate: 3%, 4%, 6%, 8%, 10%
+- KiwiSaver employer rate: 3% (default, overridable)
+- Student loan: yes/no (adds SL suffix to tax code)
+- ESCT rate (derived from salary band — calculated, not user-entered)
+
+#### Employees — AU
+- TFN (encrypted at rest — Phase 6, store plaintext with TODO for now)
+- TFN declaration status: provided / not provided / pending
+- Residency for tax purposes: resident / foreign resident / working holiday maker
+- Tax-free threshold claimed: yes/no
+- HELP/HECS debt: yes/no
+- Super fund name + member number
+- Super fund USI (Unique Superannuation Identifier)
+- Superannuation guarantee rate (currently 11.5% for FY2025, overridable)
+
+#### Implementation notes
+- Tax codes and rates should validate against the seeded tax_scales table
+- All tax identifier fields: store plaintext now, add TODO comment for Phase 6 encryption
+- Extend Zod schemas in tenants.ts and employees route
+- Extend frontend modals: Details tab in EmployerDetail, employee edit form
+- No new migrations needed if columns already exist — check schema first
+
 ### Phase 5 plan — Pay Run Engine
 - POST /api/v1/tenants/:id/pay-runs       — create pay run (draft)
 - POST /api/v1/pay-runs/:id/timesheets    — attach timesheets

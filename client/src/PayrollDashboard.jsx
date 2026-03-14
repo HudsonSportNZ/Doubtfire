@@ -732,24 +732,63 @@ function PayRuns({ jur, setJur }) {
 }
 
 /* ── EMPLOYEE DETAIL MODAL ────────────────────────────────── */
-const NZ_TAX_CODES = ["M","M SL","ME","ME SL","S","SH","ST","CAE","EDW","NSW","WT"];
-const AU_TAX_CODES = ["resident","non-resident","working_holiday"];
+const NZ_TAX_CODES = ["M","M SL","ME","ME SL","S","SH","ST","SA","CAE","EDW","NSW","WT","SB","SB SL"];
 
-function EmployeeDetailModal({ employee, onClose, onUpdated }) {
-  const [tab,       setTab]       = useState("Details");
-  const [values,    setValues]    = useState({
-    first_name: employee.first_name, last_name: employee.last_name,
-    status: employee.status, end_date: employee.end_date ?? "",
+function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }) {
+  const [tab, setTab] = useState("General");
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState(null);
+
+  const [gen, setGen] = useState({
+    title:                      employee.title ?? "",
+    first_name:                 employee.first_name ?? "",
+    middle_name:                employee.middle_name ?? "",
+    last_name:                  employee.last_name ?? "",
+    date_of_birth:              employee.date_of_birth ? String(employee.date_of_birth).split("T")[0] : "",
+    external_id:                employee.external_id ?? "",
+    email:                      employee.email ?? "",
+    mobile_phone:               employee.mobile_phone ?? "",
+    residential_street_address: employee.residential_street_address ?? "",
+    residential_address_line2:  employee.residential_address_line2 ?? "",
+    residential_city:           employee.residential_city ?? "",
+    residential_region:         employee.residential_region ?? "",
+    residential_post_code:      employee.residential_post_code ?? "",
+    residential_country:        employee.residential_country ?? "",
   });
+
+  const [emp, setEmp] = useState({
+    start_date:      employee.start_date ? String(employee.start_date).split("T")[0] : "",
+    employment_type: employee.employment_type ?? "",
+    job_title:       employee.job_title ?? "",
+    status:          employee.status ?? "active",
+    end_date:        employee.end_date ? String(employee.end_date).split("T")[0] : "",
+    pay_schedule_id: employee.pay_schedule_id ?? "",
+    automatically_pay: employee.automatically_pay ?? false,
+  });
+
+  const [pay, setPay] = useState({
+    bank_name:           employee.bank_name ?? "",
+    bank_account_number: employee.bank_account_number ?? "",
+    bank_account_name:   employee.bank_account_name ?? "",
+  });
+
+  const [taxVals, setTaxVals] = useState({
+    tax_identifier:          employee.tax_identifier ?? "",
+    tax_code:                employee.tax_code ?? "",
+    kiwisaver_member:        employee.kiwisaver_member ?? false,
+    kiwisaver_employee_rate: employee.kiwisaver_employee_rate
+      ? Number(employee.kiwisaver_employee_rate).toFixed(4) : "0.0300",
+    kiwisaver_employer_rate: employee.kiwisaver_employer_rate
+      ? Number(employee.kiwisaver_employer_rate).toFixed(4) : "0.0300",
+  });
+
   const [paySettings, setPaySettings] = useState([]);
   const [showPayForm, setShowPayForm] = useState(false);
   const [payValues,   setPayValues]   = useState({
     pay_type:"hourly", pay_rate:"", pay_frequency:"weekly",
     tax_code:"M", hours_per_week:"", effective_from:"",
-    kiwisaver_rate:"0.0300", kiwisaver_opted_out: false,
+    kiwisaver_rate:"0.0300", kiwisaver_opted_out:false,
   });
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState(null);
 
   useEffect(() => { loadPaySettings(); }, []);
 
@@ -758,11 +797,9 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
     if (res.ok) setPaySettings(await res.json());
   }
 
-  async function saveDetails() {
+  async function doPatch(body) {
     setSaving(true); setError(null);
     try {
-      const body = { first_name: values.first_name, last_name: values.last_name, status: values.status };
-      if (values.end_date) body.end_date = values.end_date;
       const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}`, {
         method: "PATCH",
         headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
@@ -782,11 +819,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
         pay_frequency: payValues.pay_frequency, tax_code: payValues.tax_code,
         effective_from: payValues.effective_from,
       };
-      if (payValues.hours_per_week)   body.hours_per_week   = payValues.hours_per_week;
-      if (employee.jurisdiction === "NZ") {
-        body.kiwisaver_rate      = payValues.kiwisaver_rate;
-        body.kiwisaver_opted_out = payValues.kiwisaver_opted_out;
-      }
+      if (payValues.hours_per_week) body.hours_per_week = payValues.hours_per_week;
+      if (isNZ) { body.kiwisaver_rate = payValues.kiwisaver_rate; body.kiwisaver_opted_out = payValues.kiwisaver_opted_out; }
       const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}/pay-settings`, {
         method: "POST",
         headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
@@ -800,8 +834,10 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
     } finally { setSaving(false); }
   }
 
-  const taxCodes = employee.jurisdiction === "AU" ? AU_TAX_CODES : NZ_TAX_CODES;
-  const initials = `${employee.first_name[0]}${employee.last_name[0]}`.toUpperCase();
+  const isNZ = employee.jurisdiction === "NZ";
+  const initials = `${(employee.first_name||"?")[0]}${(employee.last_name||"?")[0]}`.toUpperCase();
+  const selSt = {width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH};
+  const TABS = ["General","Employment","Payments","Tax","Pay Settings"];
 
   return (
     <Modal title={
@@ -812,42 +848,212 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
           <div style={{display:"flex",gap:8,marginTop:2}}><JurTag j={employee.jurisdiction}/><Badge s={employee.status}/></div>
         </div>
       </div>
-    } onClose={onClose}>
-      <TabBar tabs={["Details","Pay Settings"]} active={tab} setActive={setTab}/>
+    } onClose={onClose} maxWidth={700}>
+      <TabBar tabs={TABS} active={tab} setActive={t=>{ setTab(t); setError(null); }}/>
+      <div style={{maxHeight:"62vh",overflowY:"auto",paddingRight:2}}>
 
-      {tab === "Details" && (
+      {/* ── GENERAL ── */}
+      {tab === "General" && (
         <>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <FormField label="First Name">
-              <TextInput value={values.first_name} onChange={v=>setValues(p=>({...p,first_name:v}))} />
-            </FormField>
-            <FormField label="Last Name">
-              <TextInput value={values.last_name} onChange={v=>setValues(p=>({...p,last_name:v}))} />
-            </FormField>
+          <div style={{background:SU,borderRadius:7,padding:"7px 12px",marginBottom:14,fontSize:11.5,color:TM,fontFamily:F}}>
+            Employee ID: <span style={{fontFamily:"monospace",color:TX}}>{employee.id}</span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <FormField label="Status">
-              <select value={values.status} onChange={e=>setValues(p=>({...p,status:e.target.value}))}
-                style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
-                <option value="active">Active</option>
-                <option value="terminated">Terminated</option>
+          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr 1fr",gap:12}}>
+            <FormField label="Title">
+              <select value={gen.title} onChange={e=>setGen(p=>({...p,title:e.target.value}))} style={selSt}>
+                <option value="">—</option>
+                {["Mr","Mrs","Ms","Miss","Dr","Prof"].map(t=><option key={t} value={t}>{t}</option>)}
               </select>
             </FormField>
-            <FormField label="End Date" hint="if terminated">
-              <TextInput type="date" value={values.end_date} onChange={v=>setValues(p=>({...p,end_date:v}))} />
+            <FormField label="First Name">
+              <TextInput value={gen.first_name} onChange={v=>setGen(p=>({...p,first_name:v}))} />
+            </FormField>
+            <FormField label="Middle Name" hint="optional">
+              <TextInput value={gen.middle_name} onChange={v=>setGen(p=>({...p,middle_name:v}))} />
+            </FormField>
+            <FormField label="Surname">
+              <TextInput value={gen.last_name} onChange={v=>setGen(p=>({...p,last_name:v}))} />
             </FormField>
           </div>
-          <div style={{fontSize:12,color:TT,fontFamily:F,marginBottom:12}}>
-            Start: {fmtDate(employee.start_date)} · Jurisdiction: {employee.jurisdiction}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <FormField label="Date of Birth" hint="optional">
+              <TextInput type="date" value={gen.date_of_birth} onChange={v=>setGen(p=>({...p,date_of_birth:v}))} />
+            </FormField>
+            <FormField label="External ID" hint="optional">
+              <TextInput value={gen.external_id} onChange={v=>setGen(p=>({...p,external_id:v}))} placeholder="Payroll reference" />
+            </FormField>
+            <FormField label="Email" hint="optional">
+              <TextInput type="email" value={gen.email} onChange={v=>setGen(p=>({...p,email:v}))} />
+            </FormField>
+            <FormField label="Mobile Phone" hint="optional">
+              <TextInput value={gen.mobile_phone} onChange={v=>setGen(p=>({...p,mobile_phone:v}))} />
+            </FormField>
+          </div>
+          <FormField label="Street Address" hint="optional">
+            <TextInput value={gen.residential_street_address} onChange={v=>setGen(p=>({...p,residential_street_address:v}))} />
+          </FormField>
+          <FormField label="Address Line 2" hint="optional">
+            <TextInput value={gen.residential_address_line2} onChange={v=>setGen(p=>({...p,residential_address_line2:v}))} />
+          </FormField>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 100px 1fr",gap:12}}>
+            <FormField label="City">
+              <TextInput value={gen.residential_city} onChange={v=>setGen(p=>({...p,residential_city:v}))} />
+            </FormField>
+            <FormField label="Region">
+              <TextInput value={gen.residential_region} onChange={v=>setGen(p=>({...p,residential_region:v}))} />
+            </FormField>
+            <FormField label="Post Code">
+              <TextInput value={gen.residential_post_code} onChange={v=>setGen(p=>({...p,residential_post_code:v}))} />
+            </FormField>
+            <FormField label="Country">
+              <TextInput value={gen.residential_country} onChange={v=>setGen(p=>({...p,residential_country:v}))} placeholder={isNZ?"New Zealand":"Australia"} />
+            </FormField>
           </div>
           {error && <ErrorMsg>{error}</ErrorMsg>}
           <ModalActions>
             <Btn ghost onClick={onClose}>Close</Btn>
-            <Btn onClick={saveDetails}>{saving ? "Saving…" : "Save Changes"}</Btn>
+            <Btn onClick={()=>doPatch(gen)}>{saving?"Saving…":"Save"}</Btn>
           </ModalActions>
         </>
       )}
 
+      {/* ── EMPLOYMENT ── */}
+      {tab === "Employment" && (
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <FormField label="Start Date">
+              <TextInput type="date" value={emp.start_date} onChange={v=>setEmp(p=>({...p,start_date:v}))} />
+            </FormField>
+            <FormField label="Employment Type">
+              <select value={emp.employment_type} onChange={e=>setEmp(p=>({...p,employment_type:e.target.value}))} style={selSt}>
+                <option value="">— Select —</option>
+                <option value="full_time">Full Time</option>
+                <option value="part_time">Part Time</option>
+                <option value="casual">Casual</option>
+              </select>
+            </FormField>
+            <FormField label="Job Title" hint="optional">
+              <TextInput value={emp.job_title} onChange={v=>setEmp(p=>({...p,job_title:v}))} />
+            </FormField>
+            <FormField label="Pay Schedule">
+              <select value={emp.pay_schedule_id} onChange={e=>setEmp(p=>({...p,pay_schedule_id:e.target.value}))} style={selSt}>
+                <option value="">— Select —</option>
+                {paySchedules.map(s=><option key={s.id} value={s.id}>{s.name} ({FREQ_LABELS[s.frequency]})</option>)}
+              </select>
+            </FormField>
+            <FormField label="Status">
+              <select value={emp.status} onChange={e=>setEmp(p=>({...p,status:e.target.value}))} style={selSt}>
+                <option value="active">Active</option>
+                <option value="on_leave">On Leave</option>
+                <option value="terminated">Terminated</option>
+              </select>
+            </FormField>
+            <FormField label="End Date" hint="if terminated">
+              <TextInput type="date" value={emp.end_date} onChange={v=>setEmp(p=>({...p,end_date:v}))} />
+            </FormField>
+          </div>
+          {paySettings.length > 0 && (
+            <div style={{background:SU,borderRadius:7,padding:"9px 13px",marginBottom:14,fontSize:13,color:TM,fontFamily:F}}>
+              Current rate: <strong style={{color:TX}}>
+                {paySettings[0].pay_type==="salary"
+                  ? `$${Number(paySettings[0].pay_rate).toFixed(2)}/yr (salary)`
+                  : `$${Number(paySettings[0].pay_rate).toFixed(2)}/hr`}
+              </strong>
+              <span style={{marginLeft:8,fontSize:12,color:TT}}>effective {fmtDate(paySettings[0].effective_from)}</span>
+            </div>
+          )}
+          <FormField label="Automatically Pay Employee">
+            <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"4px 0"}}>
+              <input type="checkbox" checked={emp.automatically_pay}
+                onChange={e=>setEmp(p=>({...p,automatically_pay:e.target.checked}))}
+                style={{width:16,height:16,accentColor:B,cursor:"pointer"}} />
+              <span style={{fontSize:13.5,color:TX,fontFamily:F}}>Include in pay run automatically</span>
+            </label>
+          </FormField>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Close</Btn>
+            <Btn onClick={()=>doPatch(emp)}>{saving?"Saving…":"Save"}</Btn>
+          </ModalActions>
+        </>
+      )}
+
+      {/* ── PAYMENTS ── */}
+      {tab === "Payments" && (
+        <>
+          <FormField label="Bank Name" hint="optional">
+            <TextInput value={pay.bank_name} onChange={v=>setPay(p=>({...p,bank_name:v}))} placeholder="e.g. ANZ" />
+          </FormField>
+          <FormField label={isNZ?"Account Number":"BSB-Account"} hint="optional">
+            <TextInput value={pay.bank_account_number} onChange={v=>setPay(p=>({...p,bank_account_number:v}))}
+              placeholder={isNZ?"00-0000-0000000-00":"123456-12345678"} />
+          </FormField>
+          <FormField label="Account Name" hint="optional">
+            <TextInput value={pay.bank_account_name} onChange={v=>setPay(p=>({...p,bank_account_name:v}))} />
+          </FormField>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Close</Btn>
+            <Btn onClick={()=>doPatch(pay)}>{saving?"Saving…":"Save"}</Btn>
+          </ModalActions>
+        </>
+      )}
+
+      {/* ── TAX ── */}
+      {tab === "Tax" && (
+        <>
+          {isNZ ? (
+            <>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <FormField label="IRD Number" hint="optional">
+                  <TextInput value={taxVals.tax_identifier} onChange={v=>setTaxVals(p=>({...p,tax_identifier:v}))} placeholder="123-456-789" />
+                </FormField>
+                <FormField label="Tax Code">
+                  <select value={taxVals.tax_code} onChange={e=>setTaxVals(p=>({...p,tax_code:e.target.value}))} style={selSt}>
+                    <option value="">— Select —</option>
+                    {NZ_TAX_CODES.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </FormField>
+              </div>
+              <FormField label="KiwiSaver Member">
+                <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"4px 0"}}>
+                  <input type="checkbox" checked={taxVals.kiwisaver_member}
+                    onChange={e=>setTaxVals(p=>({...p,kiwisaver_member:e.target.checked}))}
+                    style={{width:16,height:16,accentColor:B,cursor:"pointer"}} />
+                  <span style={{fontSize:13.5,color:TX,fontFamily:F}}>Enrolled in KiwiSaver</span>
+                </label>
+              </FormField>
+              {taxVals.kiwisaver_member && (
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <FormField label="Employee Contribution">
+                    <select value={taxVals.kiwisaver_employee_rate} onChange={e=>setTaxVals(p=>({...p,kiwisaver_employee_rate:e.target.value}))} style={selSt}>
+                      <option value="0.0300">3%</option>
+                      <option value="0.0400">4%</option>
+                      <option value="0.0600">6%</option>
+                      <option value="0.0800">8%</option>
+                      <option value="0.1000">10%</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Employer Contribution">
+                    <select value={taxVals.kiwisaver_employer_rate} onChange={e=>setTaxVals(p=>({...p,kiwisaver_employer_rate:e.target.value}))} style={selSt}>
+                      <option value="0.0300">3%</option>
+                    </select>
+                  </FormField>
+                </div>
+              )}
+            </>
+          ) : (
+            <PlaceholderTab title="Tax — Australia (coming soon)" />
+          )}
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Close</Btn>
+            {isNZ && <Btn onClick={()=>doPatch(taxVals)}>{saving?"Saving…":"Save"}</Btn>}
+          </ModalActions>
+        </>
+      )}
+
+      {/* ── PAY SETTINGS ── */}
       {tab === "Pay Settings" && (
         <>
           {paySettings.length > 0 && (
@@ -869,7 +1075,6 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
               ))}
             </div>
           )}
-
           {!showPayForm ? (
             <div style={{textAlign:"center",padding:"12px 0"}}>
               <Btn onClick={()=>setShowPayForm(true)} icon="plus">Add Pay Settings</Btn>
@@ -879,8 +1084,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
               <div style={{fontSize:12,fontWeight:700,color:TM,textTransform:"uppercase",letterSpacing:.5,fontFamily:F,marginBottom:12}}>New Pay Settings</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <FormField label="Pay Type">
-                  <select value={payValues.pay_type} onChange={e=>setPayValues(p=>({...p,pay_type:e.target.value}))}
-                    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                  <select value={payValues.pay_type} onChange={e=>setPayValues(p=>({...p,pay_type:e.target.value}))} style={selSt}>
                     <option value="hourly">Hourly</option>
                     <option value="salary">Salary</option>
                     <option value="casual">Casual</option>
@@ -890,17 +1094,15 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
                   <TextInput value={payValues.pay_rate} onChange={v=>setPayValues(p=>({...p,pay_rate:v}))} placeholder="e.g. 28.50" />
                 </FormField>
                 <FormField label="Pay Frequency">
-                  <select value={payValues.pay_frequency} onChange={e=>setPayValues(p=>({...p,pay_frequency:e.target.value}))}
-                    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                  <select value={payValues.pay_frequency} onChange={e=>setPayValues(p=>({...p,pay_frequency:e.target.value}))} style={selSt}>
                     <option value="weekly">Weekly</option>
                     <option value="fortnightly">Fortnightly</option>
                     <option value="monthly">Monthly</option>
                   </select>
                 </FormField>
                 <FormField label="Tax Code">
-                  <select value={payValues.tax_code} onChange={e=>setPayValues(p=>({...p,tax_code:e.target.value}))}
-                    style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
-                    {taxCodes.map(c=><option key={c} value={c}>{c}</option>)}
+                  <select value={payValues.tax_code} onChange={e=>setPayValues(p=>({...p,tax_code:e.target.value}))} style={selSt}>
+                    {NZ_TAX_CODES.map(c=><option key={c} value={c}>{c}</option>)}
                   </select>
                 </FormField>
                 {payValues.pay_type !== "salary" && (
@@ -911,10 +1113,9 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
                 <FormField label="Effective From">
                   <TextInput type="date" value={payValues.effective_from} onChange={v=>setPayValues(p=>({...p,effective_from:v}))} />
                 </FormField>
-                {employee.jurisdiction === "NZ" && (
+                {isNZ && (
                   <FormField label="KiwiSaver Rate">
-                    <select value={payValues.kiwisaver_rate} onChange={e=>setPayValues(p=>({...p,kiwisaver_rate:e.target.value}))}
-                      style={{width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH}}>
+                    <select value={payValues.kiwisaver_rate} onChange={e=>setPayValues(p=>({...p,kiwisaver_rate:e.target.value}))} style={selSt}>
                       <option value="0.0300">3%</option>
                       <option value="0.0400">4%</option>
                       <option value="0.0600">6%</option>
@@ -927,7 +1128,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
               {error && <ErrorMsg>{error}</ErrorMsg>}
               <ModalActions>
                 <Btn ghost onClick={()=>{ setShowPayForm(false); setError(null); }}>Cancel</Btn>
-                <Btn onClick={addPaySettings}>{saving ? "Saving…" : "Save Pay Settings"}</Btn>
+                <Btn onClick={addPaySettings}>{saving?"Saving…":"Save Pay Settings"}</Btn>
               </ModalActions>
             </>
           )}
@@ -936,6 +1137,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdated }) {
           )}
         </>
       )}
+
+      </div>{/* end scroll container */}
     </Modal>
   );
 }
@@ -1193,6 +1396,7 @@ function Employees() {
           employee={editingEmployee}
           onClose={()=>setEditingEmployee(null)}
           onUpdated={updated=>{ setEmployees(prev=>prev.map(e=>e.id===updated.id?updated:e)); setEditingEmployee(updated); }}
+          paySchedules={paySchedules}
         />
       )}
     </div>

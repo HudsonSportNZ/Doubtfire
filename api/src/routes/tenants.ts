@@ -52,21 +52,59 @@ interface TenantRow {
   created_at: string;
 }
 
+// All columns selected/returned for employee rows
+const EMPLOYEE_COLS = `
+  id, tenant_id, jurisdiction, status, created_at,
+  title, first_name, middle_name, last_name, date_of_birth, external_id,
+  email, mobile_phone,
+  residential_street_address, residential_address_line2,
+  residential_city, residential_region, residential_post_code, residential_country,
+  start_date, end_date, employment_type, job_title, automatically_pay,
+  leave_profile_id, pay_schedule_id,
+  bank_name, bank_account_number, bank_account_name, bank_account,
+  tax_identifier, tax_code, kiwisaver_member, kiwisaver_employee_rate, kiwisaver_employer_rate
+`;
+
 interface EmployeeRow {
   id: string;
   tenant_id: string;
-  first_name: string;
-  last_name: string;
   jurisdiction: string;
+  status: string;
+  created_at: string;
+  // General
+  title: string | null;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  date_of_birth: string | null;
+  external_id: string | null;
+  email: string | null;
+  mobile_phone: string | null;
+  residential_street_address: string | null;
+  residential_address_line2: string | null;
+  residential_city: string | null;
+  residential_region: string | null;
+  residential_post_code: string | null;
+  residential_country: string | null;
+  // Employment
   start_date: string;
   end_date: string | null;
-  date_of_birth: string | null;
-  tax_identifier: string | null;
-  bank_account: string | null;
-  status: string;
+  employment_type: string | null;
+  job_title: string | null;
+  automatically_pay: boolean;
   leave_profile_id: string | null;
   pay_schedule_id: string | null;
-  created_at: string;
+  // Payments
+  bank_name: string | null;
+  bank_account_number: string | null;
+  bank_account_name: string | null;
+  bank_account: string | null;
+  // Tax
+  tax_identifier: string | null;
+  tax_code: string | null;
+  kiwisaver_member: boolean;
+  kiwisaver_employee_rate: string | null;
+  kiwisaver_employer_rate: string | null;
 }
 
 interface JurisdictionRow {
@@ -280,9 +318,7 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const params: unknown[] = [id];
-    let sql = `SELECT id, tenant_id, first_name, last_name, jurisdiction, start_date, end_date,
-                      status, leave_profile_id, pay_schedule_id, created_at
-               FROM employees WHERE tenant_id = $1 AND deleted_at IS NULL`;
+    let sql = `SELECT ${EMPLOYEE_COLS} FROM employees WHERE tenant_id = $1 AND deleted_at IS NULL`;
 
     if (status) {
       params.push(status);
@@ -341,9 +377,7 @@ export async function tenantRoutes(fastify: FastifyInstance): Promise<void> {
          (id, tenant_id, first_name, last_name, jurisdiction, start_date,
           date_of_birth, tax_identifier, bank_account, leave_profile_id, pay_schedule_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING id, tenant_id, first_name, last_name, jurisdiction, start_date, end_date,
-                 date_of_birth, tax_identifier, bank_account, status,
-                 leave_profile_id, pay_schedule_id, created_at`,
+       RETURNING ${EMPLOYEE_COLS}`,
       [id, tenantId, first_name, last_name, empJurisdiction, start_date,
        date_of_birth ?? null, tax_identifier ?? null, bank_account ?? null,
        leave_profile_id ?? null, pay_schedule_id ?? null],
