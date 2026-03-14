@@ -25,7 +25,7 @@ const updateEmployeeSchema = z.object({
   start_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   employment_type:   z.enum(['full_time', 'part_time', 'casual']).nullable().optional(),
   job_title:         z.string().max(200).nullable().optional(),
-  status:            z.enum(['active', 'terminated', 'on_leave']).optional(),
+  status:            z.enum(['draft', 'active', 'terminated', 'on_leave']).optional(),
   end_date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   pay_schedule_id:   z.string().uuid().nullable().optional(),
   leave_profile_id:  z.string().uuid().nullable().optional(),
