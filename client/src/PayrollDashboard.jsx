@@ -812,9 +812,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
   const [paySettings,   setPaySettings]   = useState([]);
   const [showPayForm,   setShowPayForm]   = useState(false);
   const [payValues,     setPayValues]     = useState({
-    pay_type:"hourly", pay_rate:"", pay_frequency:"weekly",
-    tax_code:"M", hours_per_week:"", effective_from:"",
-    kiwisaver_rate:"0.0300", kiwisaver_opted_out:false,
+    pay_type:"hourly", pay_rate:"", hours_per_week:"", effective_from:"",
   });
   const [leaveProfiles, setLeaveProfiles] = useState([]);
 
@@ -858,13 +856,21 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
   async function addPaySettings() {
     setSaving(true); setError(null);
     try {
+      // Derive pay_frequency from the employee's pay schedule
+      const scheduleId = emp.pay_schedule_id || employee.pay_schedule_id;
+      const schedule = paySchedules.find(s => s.id === scheduleId);
+      const derivedFrequency = schedule?.frequency ?? "weekly";
+      // Derive tax_code from the employee's Tax tab (fallback to "M")
+      const derivedTaxCode = currentEmp.tax_code || taxVals.tax_code || "M";
+
       const body = {
-        pay_type: payValues.pay_type, pay_rate: payValues.pay_rate,
-        pay_frequency: payValues.pay_frequency, tax_code: payValues.tax_code,
+        pay_type: payValues.pay_type,
+        pay_rate: payValues.pay_rate,
+        pay_frequency: derivedFrequency,
+        tax_code: derivedTaxCode,
         effective_from: payValues.effective_from,
       };
       if (payValues.hours_per_week) body.hours_per_week = payValues.hours_per_week;
-      if (isNZ) { body.kiwisaver_rate = payValues.kiwisaver_rate; body.kiwisaver_opted_out = payValues.kiwisaver_opted_out; }
       const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}/pay-settings`, {
         method: "POST",
         headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
@@ -874,7 +880,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
       if (!res.ok) { setError(data?.error?.message || "Failed to add pay settings"); return; }
       setPaySettings(prev => [data, ...prev]);
       setShowPayForm(false);
-      setPayValues({ pay_type:"hourly", pay_rate:"", pay_frequency:"weekly", tax_code:"M", hours_per_week:"", effective_from:"", kiwisaver_rate:"0.0300", kiwisaver_opted_out:false });
+      setPayValues({ pay_type:"hourly", pay_rate:"", hours_per_week:"", effective_from:"" });
     } finally { setSaving(false); }
   }
 
@@ -1054,10 +1060,11 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
             <div style={{background:SU,borderRadius:7,padding:"9px 13px",marginBottom:14,fontSize:13,color:TM,fontFamily:F}}>
               Current rate: <strong style={{color:TX}}>
                 {paySettings[0].pay_type==="salary"
-                  ? `$${Number(paySettings[0].pay_rate).toFixed(2)}/yr (salary)`
+                  ? `$${Number(paySettings[0].pay_rate).toLocaleString("en-NZ",{minimumFractionDigits:2})}/yr (salary)`
                   : `$${Number(paySettings[0].pay_rate).toFixed(2)}/hr`}
               </strong>
-              <span style={{marginLeft:8,fontSize:12,color:TT}}>effective {fmtDate(paySettings[0].effective_from)}</span>
+              {paySettings[0].hours_per_week && <span style={{marginLeft:6,fontSize:12,color:TT}}>· {paySettings[0].hours_per_week} hrs/wk</span>}
+              <span style={{marginLeft:8,fontSize:12,color:TT}}>· effective {fmtDate(paySettings[0].effective_from)}</span>
             </div>
           )}
           <FormField label="Automatically Pay Employee">
@@ -1126,6 +1133,7 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
                   <FormField label="Employee Contribution">
                     <select value={taxVals.kiwisaver_employee_rate} onChange={e=>setTaxVals(p=>({...p,kiwisaver_employee_rate:e.target.value}))} style={selSt}>
                       <option value="0.0300">3%</option>
+                      <option value="0.0350">3.5%</option>
                       <option value="0.0400">4%</option>
                       <option value="0.0600">6%</option>
                       <option value="0.0800">8%</option>
@@ -1135,6 +1143,10 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
                   <FormField label="Employer Contribution">
                     <select value={taxVals.kiwisaver_employer_rate} onChange={e=>setTaxVals(p=>({...p,kiwisaver_employer_rate:e.target.value}))} style={selSt}>
                       <option value="0.0300">3%</option>
+                      <option value="0.0350">3.5%</option>
+                      <option value="0.0400">4%</option>
+                      <option value="0.0450">4.5%</option>
+                      <option value="0.0500">5%</option>
                     </select>
                   </FormField>
                 </div>
@@ -1166,8 +1178,8 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
                     {i===0 && <span style={{background:GN.bg,color:GN.fg,fontSize:11,fontWeight:700,borderRadius:4,padding:"2px 8px",fontFamily:F}}>CURRENT</span>}
                   </div>
                   <div style={{fontSize:12,color:TT,fontFamily:F,marginTop:3}}>
-                    Tax: {ps.tax_code} · From: {fmtDate(ps.effective_from)}{ps.effective_to ? ` → ${fmtDate(ps.effective_to)}` : ""}
-                    {ps.kiwisaver_rate && ` · KiwiSaver: ${(Number(ps.kiwisaver_rate)*100).toFixed(0)}%`}
+                    From: {fmtDate(ps.effective_from)}{ps.effective_to ? ` → ${fmtDate(ps.effective_to)}` : ""}
+                    {ps.hours_per_week && ` · ${ps.hours_per_week} hrs/wk`}
                   </div>
                 </div>
               ))}
@@ -1191,18 +1203,6 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
                 <FormField label={payValues.pay_type==="salary"?"Annual Salary ($)":"Hourly Rate ($)"}>
                   <TextInput value={payValues.pay_rate} onChange={v=>setPayValues(p=>({...p,pay_rate:v}))} placeholder="e.g. 28.50" />
                 </FormField>
-                <FormField label="Pay Frequency">
-                  <select value={payValues.pay_frequency} onChange={e=>setPayValues(p=>({...p,pay_frequency:e.target.value}))} style={selSt}>
-                    <option value="weekly">Weekly</option>
-                    <option value="fortnightly">Fortnightly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                </FormField>
-                <FormField label="Tax Code">
-                  <select value={payValues.tax_code} onChange={e=>setPayValues(p=>({...p,tax_code:e.target.value}))} style={selSt}>
-                    {NZ_TAX_CODES.map(c=><option key={c} value={c}>{c}</option>)}
-                  </select>
-                </FormField>
                 {payValues.pay_type !== "salary" && (
                   <FormField label="Hours Per Week">
                     <TextInput value={payValues.hours_per_week} onChange={v=>setPayValues(p=>({...p,hours_per_week:v}))} placeholder="e.g. 40" />
@@ -1211,17 +1211,6 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
                 <FormField label="Effective From">
                   <TextInput type="date" value={payValues.effective_from} onChange={v=>setPayValues(p=>({...p,effective_from:v}))} />
                 </FormField>
-                {isNZ && (
-                  <FormField label="KiwiSaver Rate">
-                    <select value={payValues.kiwisaver_rate} onChange={e=>setPayValues(p=>({...p,kiwisaver_rate:e.target.value}))} style={selSt}>
-                      <option value="0.0300">3%</option>
-                      <option value="0.0400">4%</option>
-                      <option value="0.0600">6%</option>
-                      <option value="0.0800">8%</option>
-                      <option value="0.1000">10%</option>
-                    </select>
-                  </FormField>
-                )}
               </div>
               {error && <ErrorMsg>{error}</ErrorMsg>}
               <ModalActions>
