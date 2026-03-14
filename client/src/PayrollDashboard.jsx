@@ -831,10 +831,12 @@ function EmployeeDetailModal({ employee, onClose, onUpdated, paySchedules = [] }
   async function doPatch(body) {
     setSaving(true); setError(null);
     try {
+      // Strip empty strings — they fail server-side date/enum validation
+      const cleaned = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== ""));
       const res = await fetch(`${API_URL}/api/v1/employees/${employee.id}`, {
         method: "PATCH",
         headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify(body),
+        body: JSON.stringify(cleaned),
       });
       const data = await res.json();
       if (!res.ok) { setError(data?.error?.message || "Failed to save"); return; }
