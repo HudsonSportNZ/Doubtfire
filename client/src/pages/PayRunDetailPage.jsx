@@ -56,20 +56,31 @@ export default function PayRunDetailPage() {
 
   // Add Hours modal
   const [showHours,     setShowHours]     = useState(false);
-  const [hoursEmp,      setHoursEmp]      = useState(null); // { employee_id, first_name, last_name }
+  const [hoursEmp,      setHoursEmp]      = useState(null);
   const [hoursValue,    setHoursValue]    = useState("");
   const [hoursBusy,     setHoursBusy]     = useState(false);
   const [hoursError,    setHoursError]    = useState(null);
+
+  // Saved timesheets: map of employee_id → total_hours
+  const [timesheetMap,  setTimesheetMap]  = useState({});
 
   useEffect(() => { load(); }, [id]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/pay-runs/${id}`, { headers: apiHeaders() });
-      if (!res.ok) { navigate(-1); return; }
-      const data = await res.json();
-      setPayRun(data);
+      const [runRes, tsRes] = await Promise.all([
+        fetch(`${API_URL}/api/v1/pay-runs/${id}`, { headers: apiHeaders() }),
+        fetch(`${API_URL}/api/v1/pay-runs/${id}/timesheets`, { headers: apiHeaders() }),
+      ]);
+      if (!runRes.ok) { navigate(-1); return; }
+      setPayRun(await runRes.json());
+      if (tsRes.ok) {
+        const sheets = await tsRes.json();
+        const map = {};
+        sheets.forEach(s => { map[s.employee_id] = Number(s.total_hours); });
+        setTimesheetMap(map);
+      }
     } finally { setLoading(false); }
   }
 
@@ -113,7 +124,9 @@ export default function PayRunDetailPage() {
 
   function openAddHours(item) {
     setHoursEmp(item);
-    setHoursValue("");
+    // Pre-populate with already saved hours if any
+    const existing = timesheetMap[item.employee_id];
+    setHoursValue(existing ? String(existing) : "");
     setHoursError(null);
     setShowHours(true);
   }
@@ -331,8 +344,8 @@ export default function PayRunDetailPage() {
                         {isDraft && (
                           <>
                             <button onClick={() => openAddHours(item)}
-                              style={{ background: "none", border: `1px solid ${B}`, color: B, borderRadius: 5, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", fontFamily: F, fontWeight: 600, whiteSpace: "nowrap" }}>
-                              Set Hours
+                              style={{ background: timesheetMap[item.employee_id] ? GN.bg : "none", border: `1px solid ${timesheetMap[item.employee_id] ? GN.fg : B}`, color: timesheetMap[item.employee_id] ? GN.fg : B, borderRadius: 5, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", fontFamily: F, fontWeight: 600, whiteSpace: "nowrap" }}>
+                              {timesheetMap[item.employee_id] ? `✓ ${timesheetMap[item.employee_id]}h` : "Set Hours"}
                             </button>
                             <button onClick={() => doRemoveEmployee(item.employee_id)}
                               style={{ background: "none", border: "none", color: "#c0392b", fontSize: 11, cursor: "pointer", fontFamily: F, fontWeight: 600 }}>
