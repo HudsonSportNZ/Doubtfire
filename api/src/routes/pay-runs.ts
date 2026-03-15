@@ -289,14 +289,22 @@ export async function payRunRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       const employeeCount = await runPayRunCalculation(id);
 
+      if (employeeCount === 0) {
+        await query(`UPDATE pay_runs SET status = 'draft' WHERE id = $1`, [id]);
+        return reply.status(400).send({
+          error: { code: 'NO_EMPLOYEES', message: 'No employees with pay settings were found for this pay run. Add employees first, or check that employees have pay settings configured.' },
+        });
+      }
+
       // Transition to review
       await query(`UPDATE pay_runs SET status = 'review' WHERE id = $1`, [id]);
 
       return reply.send({ status: 'review', employees_calculated: employeeCount });
     } catch (err) {
-      // Revert to draft on failure so user can fix and retry
+      // Revert to draft and surface the real error message
       await query(`UPDATE pay_runs SET status = 'draft' WHERE id = $1`, [id]);
-      throw err;
+      const message = err instanceof Error ? err.message : 'Calculation failed';
+      return reply.status(500).send({ error: { code: 'CALC_ERROR', message } });
     }
   });
 
@@ -366,6 +374,75 @@ export async function payRunRoutes(fastify: FastifyInstance): Promise<void> {
     );
 
     return reply.send(rows[0]);
+  });
+
+  /**
+   * POST /api/v1/pay-runs/:id/revert
+   * Revert a review or approved pay run back to draft.
+   * Clears calculated items so they can be recalculated.
+   */
+  fastify.post('/:id/revert', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const payRunRows = await query<{ id: string; status: string }>(
+      `SELECT id, status FROM pay_runs WHERE id = $1`, [id],
+    );
+    if (payRunRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Pay run not found' } });
+    }
+    const { status } = payRunRows[0];
+    if (status !== 'review' && status !== 'approved') {
+      return reply.status(409).send({
+        error: { code: 'INVALID_STATE', message: `Can only revert from review or approved — current status is ${status}` },
+      });
+    }
+
+    // Clear calculated items so they will be recalculated fresh
+    await query(
+      `DELETE FROM pay_run_line_items WHERE pay_run_item_id IN (
+         SELECT id FROM pay_run_items WHERE pay_run_id = $1
+       )`,
+      [id],
+    );
+    await query(`DELETE FROM pay_run_items WHERE pay_run_id = $1`, [id]);
+    await query(
+      `UPDATE pay_runs SET status = 'draft', approved_by = NULL, approved_at = NULL WHERE id = $1`,
+      [id],
+    );
+
+    return reply.send({ status: 'draft' });
+  });
+
+  /**
+   * DELETE /api/v1/pay-runs/:id
+   * Permanently delete a draft pay run and all its items.
+   */
+  fastify.delete('/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const payRunRows = await query<{ id: string; status: string }>(
+      `SELECT id, status FROM pay_runs WHERE id = $1`, [id],
+    );
+    if (payRunRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Pay run not found' } });
+    }
+    if (payRunRows[0].status !== 'draft') {
+      return reply.status(409).send({
+        error: { code: 'INVALID_STATE', message: 'Only draft pay runs can be deleted' },
+      });
+    }
+
+    await query(
+      `DELETE FROM pay_run_line_items WHERE pay_run_item_id IN (
+         SELECT id FROM pay_run_items WHERE pay_run_id = $1
+       )`,
+      [id],
+    );
+    await query(`DELETE FROM pay_run_items WHERE pay_run_id = $1`, [id]);
+    await query(`DELETE FROM timesheets WHERE pay_run_id = $1`, [id]);
+    await query(`DELETE FROM pay_runs WHERE id = $1`, [id]);
+
+    return reply.status(204).send();
   });
 
   /**

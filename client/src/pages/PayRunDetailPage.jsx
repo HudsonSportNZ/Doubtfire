@@ -8,8 +8,8 @@ import { Icon, Badge, JurTag, Btn, Card, TH, TD } from "../components/ui";
 const STATUS_FLOW = {
   draft:       { action: "Calculate",   endpoint: "calculate", color: GY },
   calculating: { action: "Calculating…", endpoint: null,       color: AM },
-  review:      { action: "Approve",     endpoint: "approve",   color: AM },
-  approved:    { action: "Finalise",    endpoint: "finalise",  color: GN },
+  review:      { action: "Approve",     endpoint: "approve",   color: AM, revert: true },
+  approved:    { action: "Finalise",    endpoint: "finalise",  color: GN, revert: true },
   finalised:   { action: null,          endpoint: null,        color: GN },
 };
 
@@ -131,6 +131,7 @@ export default function PayRunDetailPage() {
       const data = await res.json();
       if (!res.ok) { setHoursError(data?.error?.message || "Failed to save hours"); return; }
       setShowHours(false);
+      await load();
     } finally { setHoursBusy(false); }
   }
 
@@ -142,9 +143,32 @@ export default function PayRunDetailPage() {
         headers: apiHeaders(),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data?.error?.message || `Failed to ${endpoint}`); return; }
+      if (!res.ok) { setError(data?.error?.message || data?.message || `Failed to ${endpoint}`); return; }
       await load();
     } finally { setActing(false); }
+  }
+
+  async function doRevert() {
+    if (!confirm("Revert this pay run to draft? Calculated amounts will be cleared and you can recalculate.")) return;
+    setActing(true); setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/pay-runs/${id}/revert`, {
+        method: "POST",
+        headers: apiHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to revert"); return; }
+      await load();
+    } finally { setActing(false); }
+  }
+
+  async function doDelete() {
+    if (!confirm("Permanently delete this draft pay run?")) return;
+    const res = await fetch(`${API_URL}/api/v1/pay-runs/${id}`, {
+      method: "DELETE",
+      headers: apiHeaders(),
+    });
+    if (res.ok) { navigate(-1); }
   }
 
   function toggleExpand(itemId) {
@@ -201,17 +225,31 @@ export default function PayRunDetailPage() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            {isDraft && (
-              <button onClick={openAddEmp}
-                style={{ padding: "8px 18px", borderRadius: 7, border: `1.5px solid ${B}`, background: "transparent", color: B, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: F }}>
-                + Add Employee
-              </button>
-            )}
-            {flow.action && flow.endpoint && (
-              <Btn onClick={() => doAction(flow.endpoint)} disabled={acting || payRun.status === "calculating"}>
-                {acting ? "Working…" : flow.action}
-              </Btn>
-            )}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {isDraft && (
+                <button onClick={openAddEmp}
+                  style={{ padding: "8px 18px", borderRadius: 7, border: `1.5px solid ${B}`, background: "transparent", color: B, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: F }}>
+                  + Add Employee
+                </button>
+              )}
+              {flow.revert && (
+                <button onClick={doRevert} disabled={acting}
+                  style={{ padding: "8px 18px", borderRadius: 7, border: "1.5px solid #c0392b", background: "transparent", color: "#c0392b", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: F }}>
+                  Revert to Draft
+                </button>
+              )}
+              {flow.action && flow.endpoint && (
+                <Btn onClick={() => doAction(flow.endpoint)} disabled={acting || payRun.status === "calculating"}>
+                  {acting ? "Working…" : flow.action}
+                </Btn>
+              )}
+              {isDraft && (
+                <button onClick={doDelete}
+                  style={{ padding: "8px 14px", borderRadius: 7, border: "1.5px solid #e0d8f0", background: "transparent", color: "#999", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: F }}>
+                  Delete
+                </button>
+              )}
+            </div>
             {isDraft && (
               <div style={{ fontSize: 11.5, color: TT, fontFamily: F }}>
                 Add employees and hours, then click Calculate
