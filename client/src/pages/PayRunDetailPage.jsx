@@ -292,9 +292,16 @@ export default function PayRunDetailPage() {
   const items  = payRun.items || [];
   const isDraft = payRun.status === "draft";
 
+  // For NZ: ACC is included in the combined PAYE+ACC deduction shown to employees.
+  // Employer cost is KiwiSaver ER only (ACC ER is separate and not shown here).
   const employerCost = jur === "NZ"
-    ? (Number(totals.kiwisaver_er || 0) + Number(totals.acc_levy || 0))
+    ? Number(totals.kiwisaver_er || 0)
     : Number(totals.super_er || 0);
+
+  // NZ: combine PAYE + ACC into one deduction figure for display (matches payslip)
+  const totalTaxDeduction = jur === "NZ"
+    ? (Number(totals.paye_tax || 0) + Number(totals.acc_levy || 0))
+    : Number(totals.paye_tax || 0);
 
   // Employees already in this pay run
   const existingEmpIds = new Set(items.map(i => i.employee_id));
@@ -385,10 +392,14 @@ export default function PayRunDetailPage() {
       {items.length > 0 && (
         <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
           <SummaryCard label="Total Gross" value={fmtMoney(totals.gross_wages, jur)} />
-          <SummaryCard label={jur === "NZ" ? "Total PAYE" : "Total PAYG"} value={fmtMoney(totals.paye_tax, jur)} />
+          <SummaryCard
+            label={jur === "NZ" ? "Total PAYE + ACC" : "Total PAYG"}
+            value={fmtMoney(totalTaxDeduction, jur)}
+            sub={jur === "NZ" ? "Income tax + ACC earner levy" : undefined}
+          />
           <SummaryCard label="Total Net Pay" value={fmtMoney(totals.net_wages, jur)} dark />
           <SummaryCard
-            label={jur === "NZ" ? "Employer KiwiSaver + ACC" : "Employer Super"}
+            label={jur === "NZ" ? "Employer KiwiSaver" : "Employer Super"}
             value={fmtMoney(employerCost, jur)}
             sub="Employer cost (not deducted from employee)"
           />
@@ -409,9 +420,8 @@ export default function PayRunDetailPage() {
               <tr>
                 <TH>Employee</TH>
                 <TH>Gross</TH>
-                <TH>{jur === "NZ" ? "PAYE" : "PAYG"}</TH>
+                <TH>{jur === "NZ" ? "PAYE + ACC" : "PAYG"}</TH>
                 {jur === "NZ" && <TH>KiwiSaver EE</TH>}
-                {jur === "NZ" && <TH>ACC</TH>}
                 {jur === "AU" && <TH>Super ER</TH>}
                 <TH>Net Pay</TH>
                 <TH>Status</TH>
@@ -424,9 +434,8 @@ export default function PayRunDetailPage() {
                   <tr key={item.id} className="trow">
                     <TD bold>{item.first_name} {item.last_name}</TD>
                     <TD mono>{item.gross_wages ? fmtMoney(item.gross_wages, jur) : "—"}</TD>
-                    <TD mono>{item.paye_tax ? fmtMoney(item.paye_tax, jur) : "—"}</TD>
+                    <TD mono>{(item.paye_tax || item.acc_levy) ? fmtMoney(Number(item.paye_tax || 0) + Number(item.acc_levy || 0), jur) : "—"}</TD>
                     {jur === "NZ" && <TD mono>{item.kiwisaver_ee ? fmtMoney(item.kiwisaver_ee, jur) : "—"}</TD>}
-                    {jur === "NZ" && <TD mono>{item.acc_levy ? fmtMoney(item.acc_levy, jur) : "—"}</TD>}
                     {jur === "AU" && <TD mono>{item.super_er ? fmtMoney(item.super_er, jur) : "—"}</TD>}
                     <TD mono accent>{item.net_wages ? fmtMoney(item.net_wages, jur) : "—"}</TD>
                     <TD><Badge s={item.status} /></TD>
@@ -461,7 +470,7 @@ export default function PayRunDetailPage() {
                   </tr>
                   {expanded[item.id] && item.line_items && item.line_items.length > 0 && (
                     <tr key={`${item.id}-lines`}>
-                      <td colSpan={jur === "NZ" ? 9 : 8} style={{ padding: "0 0 4px 0", background: "#faf9fc" }}>
+                      <td colSpan={jur === "NZ" ? 8 : 8} style={{ padding: "0 0 4px 0", background: "#faf9fc" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
                           <thead>
                             <tr>

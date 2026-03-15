@@ -38,8 +38,9 @@ Decimal.set({ rounding: Decimal.ROUND_HALF_UP, precision: 20 });
 const TAX_CODE_TO_SCALE: Record<string, string> = {
   'M':      'NZ_PAYE_M',
   'M SL':   'NZ_PAYE_M',   // same brackets as M; SL handled separately
-  'ME':     'NZ_PAYE_ME',
-  'ND':     'NZ_PAYE_ME',  // no declaration — same as ME (45% flat)
+  'ME':     'NZ_PAYE_ME',   // M with Independent Earner Tax Credit
+  'ME SL':  'NZ_PAYE_ME',
+  'ND':     'NZ_PAYE_ND',  // no IR330 declaration — 45% flat (separate from ME)
   'S':      'NZ_PAYE_S',
   'S SL':   'NZ_PAYE_S',
   'SH':     'NZ_PAYE_SH',
