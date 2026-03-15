@@ -141,6 +141,7 @@ export default function PayRunDetailPage() {
       const res = await fetch(`${API_URL}/api/v1/pay-runs/${id}/${endpoint}`, {
         method: "POST",
         headers: apiHeaders(),
+        body: "{}",
       });
       const data = await res.json();
       if (!res.ok) { setError(data?.error?.message || data?.message || `Failed to ${endpoint}`); return; }
@@ -155,6 +156,7 @@ export default function PayRunDetailPage() {
       const res = await fetch(`${API_URL}/api/v1/pay-runs/${id}/revert`, {
         method: "POST",
         headers: apiHeaders(),
+        body: "{}",
       });
       const data = await res.json();
       if (!res.ok) { setError(data?.error?.message || "Failed to revert"); return; }
