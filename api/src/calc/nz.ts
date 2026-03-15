@@ -230,6 +230,14 @@ export async function calculateNZ(input: NzCalcInput): Promise<CalcResult> {
       note: `Flat rate — tax code: ${taxCode}`,
     });
     lineItems.push({ code: 'PAYE', amount: periodPayeFlat.toNumber(), is_taxable: false });
+  } else {
+    // Unknown scale type — fail loudly so the admin knows to fix the scale definition.
+    // Previously this silently returned PAYE = 0, which is worse than failing.
+    throw new Error(
+      `CONFIG_ERROR: Tax scale ${scaleType} has unexpected type "${(scaleDef as { type?: string }).type}". ` +
+      `Expected "nz_marginal_rate" or "nz_flat_rate". ` +
+      `Fix the definition in Tax Engine → Settings → Tax Scales.`,
+    );
   }
 
   const periodPaye = round4(annualPaye.div(multiplier));
