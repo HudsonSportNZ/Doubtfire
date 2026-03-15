@@ -16,8 +16,9 @@
 -- over the 2024-25 rows for any pay period on or after that date.
 -- The 2024-25 rows are preserved for historical payslip reproduction.
 --
--- ON CONFLICT DO NOTHING makes this migration idempotent — safe to run even
--- if the rows were previously inserted outside the migration runner.
+-- ON CONFLICT DO UPDATE: this migration is authoritative for these rows.
+-- If a row already exists (e.g. from a manual admin insert), the correct
+-- definition is always restored.
 
 -- 1. NZ_PAYE_M (2025-26): marginal brackets, NO IETC
 INSERT INTO tax_scales (jurisdiction, scale_type, effective_from, effective_to, definition)
@@ -31,13 +32,13 @@ VALUES ('NZ', 'NZ_PAYE_M', '2025-04-01', NULL, '{
     {"from": 70000,  "to": 180000, "rate": 0.330},
     {"from": 180000, "to": null,   "rate": 0.390}
   ],
-  "note": "⚠️ No IETC on M code. IETC applies to ME (earner credit) code only. Verify brackets each April against IRD PAYE deductions guide."
+  "note": "No IETC on M code. IETC applies to ME (earner credit) code only. Verify brackets each April against IRD PAYE deductions guide."
 }')
-ON CONFLICT (jurisdiction, scale_type, effective_from) DO NOTHING;
+ON CONFLICT (jurisdiction, scale_type, effective_from)
+DO UPDATE SET definition = EXCLUDED.definition, effective_to = EXCLUDED.effective_to;
 
 -- 2. NZ_PAYE_ME (2025-26): marginal brackets WITH IETC (earner credit)
 --    IETC: full $520/yr credit for $24k-$44k, abates at 13c/$ above $44k, gone at $70k.
---    ⚠️ Verify IETC thresholds and annual credit each tax year against IRD guidance.
 INSERT INTO tax_scales (jurisdiction, scale_type, effective_from, effective_to, definition)
 VALUES ('NZ', 'NZ_PAYE_ME', '2025-04-01', NULL, '{
   "type": "nz_marginal_rate",
@@ -57,9 +58,10 @@ VALUES ('NZ', 'NZ_PAYE_ME', '2025-04-01', NULL, '{
     "annual_credit": 520,
     "abatement_rate": 0.13
   },
-  "note": "⚠️ Verify IETC thresholds and credit amount each April. IETC is for earners not receiving Working for Families and using tax code ME."
+  "note": "Verify IETC thresholds and credit amount each April. IETC is for earners not receiving Working for Families and using tax code ME."
 }')
-ON CONFLICT (jurisdiction, scale_type, effective_from) DO NOTHING;
+ON CONFLICT (jurisdiction, scale_type, effective_from)
+DO UPDATE SET definition = EXCLUDED.definition, effective_to = EXCLUDED.effective_to;
 
 -- 3. NZ_PAYE_ND (2025-26): No declaration supplied — flat 45%
 INSERT INTO tax_scales (jurisdiction, scale_type, effective_from, effective_to, definition)
@@ -69,20 +71,21 @@ VALUES ('NZ', 'NZ_PAYE_ND', '2025-04-01', NULL, '{
   "rate": 0.45,
   "acc_applies": true,
   "reason": "no_tax_declaration",
-  "note": "⚠️ Applied when employee has not supplied an IR330. Withhold at 45% until declaration is received. Formerly mapped to NZ_PAYE_ME — this is the correct separate scale."
+  "note": "Applied when employee has not supplied an IR330. Withhold at 45% until declaration is received."
 }')
-ON CONFLICT (jurisdiction, scale_type, effective_from) DO NOTHING;
+ON CONFLICT (jurisdiction, scale_type, effective_from)
+DO UPDATE SET definition = EXCLUDED.definition, effective_to = EXCLUDED.effective_to;
 
 -- 4. NZ_ACC_LEVY (2025-26): Updated rate and cap
 --    Rate: 1.67% (up from 1.60% in 2024-25)
 --    Cap:  $152,790 (up from $142,283 in 2024-25)
---    ⚠️ Verify each April against ACC levy rates page.
 INSERT INTO tax_scales (jurisdiction, scale_type, effective_from, effective_to, definition)
 VALUES ('NZ', 'NZ_ACC_LEVY', '2025-04-01', NULL, '{
   "type": "nz_acc_levy",
   "tax_year": "2025-26",
   "rate": 0.0167,
   "annual_maximum_liable_earnings": 152790,
-  "note": "⚠️ Verify rate and cap each April against ACC earner levy schedule. Rate = $1.67 per $100 of liable earnings. ACC-exempt codes: SA, NSW, WT."
+  "note": "Verify rate and cap each April against ACC earner levy schedule. Rate = $1.67 per $100 of liable earnings. ACC-exempt codes: SA, NSW, WT."
 }')
-ON CONFLICT (jurisdiction, scale_type, effective_from) DO NOTHING;
+ON CONFLICT (jurisdiction, scale_type, effective_from)
+DO UPDATE SET definition = EXCLUDED.definition, effective_to = EXCLUDED.effective_to;

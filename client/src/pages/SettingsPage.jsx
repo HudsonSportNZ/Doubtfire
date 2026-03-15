@@ -176,11 +176,108 @@ function ScaleDefinitionDetail({ def }) {
   );
 }
 
+// ─── Edit rate modal ──────────────────────────────────────────────────────────
+
+function EditRateModal({ scale, onClose, onSaved }) {
+  const [values, setValues] = useState({
+    effective_from: scale.effective_from,
+    effective_to: scale.effective_to || "",
+    definition: JSON.stringify(scale.definition, null, 2),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function save() {
+    setSaving(true); setError(null);
+    let parsedDef;
+    try {
+      parsedDef = JSON.parse(values.definition);
+    } catch {
+      setError("Definition is not valid JSON. Check formatting."); setSaving(false); return;
+    }
+
+    const body = {
+      effective_from: values.effective_from,
+      effective_to: values.effective_to || null,
+      definition: parsedDef,
+    };
+
+    const res = await fetch(`${API_URL}/api/v1/admin/tax-scales/${scale.id}`, {
+      method: "PATCH",
+      headers: apiHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data?.error?.message || "Failed to save"); setSaving(false); return; }
+    onSaved(data);
+    onClose();
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,22,37,.55)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: WH, borderRadius: 14, boxShadow: "0 24px 80px rgba(57,23,93,.22)", width: "100%", maxWidth: 660, fontFamily: F, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px 0" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: TX }}>Edit — {scale.scale_type}</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: TT, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: "16px 24px 0", overflowY: "auto", flex: 1 }}>
+          <div style={{ fontSize: 12.5, color: TM, marginBottom: 14, padding: "8px 12px", background: "#fff8e1", borderRadius: 7, border: "1px solid #f0d070" }}>
+            You are editing a live rule. Changes take effect immediately on the next pay run calculation.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <FormField label="Effective From (YYYY-MM-DD)">
+              <TextInput value={values.effective_from} onChange={v => setValues(p => ({ ...p, effective_from: v }))} placeholder="e.g. 2025-04-01" />
+            </FormField>
+            <FormField label="Effective To (leave blank = no end date)">
+              <TextInput value={values.effective_to} onChange={v => setValues(p => ({ ...p, effective_to: v }))} placeholder="blank = active indefinitely" />
+            </FormField>
+          </div>
+          <FormField label="Definition (JSON)">
+            <textarea
+              value={values.definition}
+              onChange={e => setValues(p => ({ ...p, definition: e.target.value }))}
+              style={{ width: "100%", minHeight: 280, border: `1.5px solid ${BR}`, borderRadius: 7, padding: "10px 13px", fontSize: 12.5, fontFamily: "monospace", color: TX, resize: "vertical", boxSizing: "border-box" }}
+            />
+          </FormField>
+          {error && <ErrorMsg>{error}</ErrorMsg>}
+        </div>
+        <div style={{ padding: "12px 24px 20px" }}>
+          <ModalActions>
+            <Btn ghost onClick={onClose}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving || !values.effective_from}>{saving ? "Saving…" : "Save Changes"}</Btn>
+          </ModalActions>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Scale row (collapsible) ──────────────────────────────────────────────────
 
-function ScaleRow({ scale, isActive, onAddNew }) {
+function ScaleRow({ scale, isActive, canDelete, onAddNew, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const def = scale.definition;
+
+  async function handleDelete(e) {
+    e.stopPropagation();
+    if (!confirmDelete) { setConfirmDelete(true); return; }
+    setDeleting(true); setDeleteError(null);
+    const res = await fetch(`${API_URL}/api/v1/admin/tax-scales/${scale.id}`, {
+      method: "DELETE",
+      headers: apiHeaders(),
+    });
+    if (res.ok) {
+      onDelete(scale.id);
+    } else {
+      const data = await res.json();
+      setDeleteError(data?.error?.message || "Failed to delete");
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
 
   return (
     <div style={{ borderBottom: `1px solid ${BR}` }}>
@@ -205,13 +302,33 @@ function ScaleRow({ scale, isActive, onAddNew }) {
       {open && (
         <div style={{ padding: "0 0 16px 0" }}>
           <ScaleDefinitionDetail def={def} />
-          {isActive && (
-            <div style={{ marginTop: 14 }}>
+
+          <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {isActive && (
               <Btn small ghost onClick={e => { e.stopPropagation(); onAddNew(scale); }}>
                 + Add New Year's Rates for {scale.scale_type}
               </Btn>
-            </div>
-          )}
+            )}
+            <Btn small ghost onClick={e => { e.stopPropagation(); onEdit(scale); }}>
+              Edit this row
+            </Btn>
+            {canDelete && (
+              confirmDelete ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: "#c0392b", fontFamily: F }}>Confirm delete?</span>
+                  <Btn small ghost onClick={handleDelete} disabled={deleting} style={{ color: "#c0392b", borderColor: "#c0392b" }}>
+                    {deleting ? "Deleting…" : "Yes, delete"}
+                  </Btn>
+                  <Btn small ghost onClick={e => { e.stopPropagation(); setConfirmDelete(false); }}>Cancel</Btn>
+                </>
+              ) : (
+                <Btn small ghost onClick={handleDelete} style={{ color: "#c0392b", borderColor: "#c0392b" }}>
+                  Delete
+                </Btn>
+              )
+            )}
+            {deleteError && <span style={{ fontSize: 12, color: "#c0392b", fontFamily: F }}>{deleteError}</span>}
+          </div>
         </div>
       )}
     </div>
@@ -305,6 +422,7 @@ function TaxEngineContent() {
   const [loading,     setLoading]     = useState(true);
   const [jurFilter,   setJurFilter]   = useState("ALL");
   const [addModal,    setAddModal]    = useState(null); // template scale row
+  const [editModal,   setEditModal]   = useState(null); // scale row to edit
   const [subTab,      setSubTab]      = useState("Tax Scales");
 
   useEffect(() => { loadAll(); }, []);
@@ -325,6 +443,14 @@ function TaxEngineContent() {
 
   function handleSaved(newRow) {
     setScales(prev => [newRow, ...prev]);
+  }
+
+  function handleEdited(updatedRow) {
+    setScales(prev => prev.map(s => s.id === updatedRow.id ? updatedRow : s));
+  }
+
+  function handleDeleted(deletedId) {
+    setScales(prev => prev.filter(s => s.id !== deletedId));
   }
 
   // Group scales by scale_type, mark which row is active (no effective_to or latest)
@@ -372,7 +498,15 @@ function TaxEngineContent() {
                     <span style={{ color: TT, fontWeight: 400 }}>· {rows.length} version{rows.length > 1 ? "s" : ""}</span>
                   </div>
                   {rows.map(s => (
-                    <ScaleRow key={s.id} scale={s} isActive={activeIds.has(s.id)} onAddNew={setAddModal} />
+                    <ScaleRow
+                      key={s.id}
+                      scale={s}
+                      isActive={activeIds.has(s.id)}
+                      canDelete={rows.length > 1}
+                      onAddNew={setAddModal}
+                      onEdit={setEditModal}
+                      onDelete={handleDeleted}
+                    />
                   ))}
                 </div>
               ))}
@@ -425,6 +559,9 @@ function TaxEngineContent() {
 
       {addModal && (
         <NewRateModal template={addModal} onClose={() => setAddModal(null)} onSaved={handleSaved} />
+      )}
+      {editModal && (
+        <EditRateModal scale={editModal} onClose={() => setEditModal(null)} onSaved={handleEdited} />
       )}
     </div>
   );

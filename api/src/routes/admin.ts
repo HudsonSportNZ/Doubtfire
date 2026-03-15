@@ -124,6 +124,100 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   /**
+   * PATCH /api/v1/admin/tax-scales/:id
+   * Edit an existing tax scale row — update definition, effective_from, or effective_to.
+   * Sends only the fields to change; omitted fields are left as-is.
+   * Passing effective_to: null removes the end date (makes the row open-ended again).
+   */
+  fastify.patch('/tax-scales/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const patchSchema = z.object({
+      effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      effective_to:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+      definition:     z.record(z.unknown()).optional(),
+    });
+
+    const parsed = patchSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: parsed.error.errors[0].message },
+      });
+    }
+
+    const existing = await query<TaxScaleRow>(`SELECT * FROM tax_scales WHERE id = $1`, [id]);
+    if (existing.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Tax scale row not found.' } });
+    }
+
+    // Build a dynamic UPDATE with only the supplied fields
+    const rawBody = request.body as Record<string, unknown>;
+    const setClauses: string[] = [];
+    const params: unknown[] = [id];
+    let idx = 2;
+
+    if (parsed.data.effective_from !== undefined) {
+      setClauses.push(`effective_from = $${idx++}`);
+      params.push(parsed.data.effective_from);
+    }
+    if ('effective_to' in rawBody) {
+      setClauses.push(`effective_to = $${idx++}`);
+      params.push(parsed.data.effective_to ?? null);
+    }
+    if (parsed.data.definition !== undefined) {
+      setClauses.push(`definition = $${idx++}`);
+      params.push(JSON.stringify(parsed.data.definition));
+    }
+
+    if (setClauses.length === 0) {
+      return reply.status(400).send({
+        error: { code: 'NO_FIELDS', message: 'No fields to update were supplied.' },
+      });
+    }
+
+    const updated = await query<TaxScaleRow>(
+      `UPDATE tax_scales SET ${setClauses.join(', ')} WHERE id = $1
+       RETURNING id, jurisdiction, scale_type, effective_from, effective_to, definition, created_at`,
+      params,
+    );
+
+    return reply.send(updated[0]);
+  });
+
+  /**
+   * DELETE /api/v1/admin/tax-scales/:id
+   * Delete a tax scale row. Refused if it is the only row for that scale_type —
+   * at least one row must always remain so the engine can resolve a rate.
+   */
+  fastify.delete('/tax-scales/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const rows = await query<TaxScaleRow>(
+      `SELECT id, jurisdiction, scale_type FROM tax_scales WHERE id = $1`, [id],
+    );
+    if (rows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Tax scale row not found.' } });
+    }
+    const row = rows[0];
+
+    const countRows = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM tax_scales WHERE jurisdiction = $1 AND scale_type = $2`,
+      [row.jurisdiction, row.scale_type],
+    );
+    if (Number(countRows[0].count) <= 1) {
+      return reply.status(409).send({
+        error: {
+          code: 'CANNOT_DELETE_LAST_ROW',
+          message: `Cannot delete the only row for ${row.scale_type}. At least one row must always remain.`,
+        },
+      });
+    }
+
+    await query(`DELETE FROM tax_scales WHERE id = $1`, [id]);
+    return reply.send({ deleted: true });
+  });
+
+  /**
    * GET /api/v1/admin/super-rates
    * List all AU superannuation guarantee rate rows.
    */
