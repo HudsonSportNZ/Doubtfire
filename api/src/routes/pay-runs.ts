@@ -397,28 +397,33 @@ export async function payRunRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    // Clear line items (safe to delete — no immutability constraint)
-    await query(
-      `DELETE FROM pay_run_line_items WHERE pay_run_item_id IN (
-         SELECT id FROM pay_run_items WHERE pay_run_id = $1
-       )`,
-      [id],
-    );
-    // Reset pay_run_items to pending (do NOT delete — calculation_snapshots references
-    // these rows with an immutable FK, so deletion would fail. Snapshots are kept as
-    // historical audit records; the ON CONFLICT DO UPDATE in the calc engine will
-    // overwrite the amounts when the run is recalculated.)
-    await query(
-      `UPDATE pay_run_items
-       SET gross_wages = 0, paye_tax = 0, kiwisaver_ee = 0, kiwisaver_er = 0,
-           acc_levy = 0, super_ee = 0, super_er = 0, net_wages = 0, status = 'pending'
-       WHERE pay_run_id = $1`,
-      [id],
-    );
-    await query(
-      `UPDATE pay_runs SET status = 'draft', approved_by = NULL, approved_at = NULL WHERE id = $1`,
-      [id],
-    );
+    try {
+      // Clear line items (safe to delete — no immutability constraint)
+      await query(
+        `DELETE FROM pay_run_line_items WHERE pay_run_item_id IN (
+           SELECT id FROM pay_run_items WHERE pay_run_id = $1
+         )`,
+        [id],
+      );
+      // Reset pay_run_items to pending (do NOT delete — calculation_snapshots references
+      // these rows with an immutable FK, so deletion would fail. Snapshots are kept as
+      // historical audit records; the ON CONFLICT DO UPDATE in the calc engine will
+      // overwrite the amounts when the run is recalculated.)
+      await query(
+        `UPDATE pay_run_items
+         SET gross_wages = 0, paye_tax = 0, kiwisaver_ee = 0, kiwisaver_er = 0,
+             acc_levy = 0, super_ee = 0, super_er = 0, net_wages = 0, status = 'pending'
+         WHERE pay_run_id = $1`,
+        [id],
+      );
+      await query(
+        `UPDATE pay_runs SET status = 'draft', approved_by = NULL, approved_at = NULL WHERE id = $1`,
+        [id],
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Revert failed';
+      return reply.status(500).send({ error: { code: 'REVERT_ERROR', message } });
+    }
 
     return reply.send({ status: 'draft' });
   });
