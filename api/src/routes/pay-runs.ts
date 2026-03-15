@@ -367,4 +367,132 @@ export async function payRunRoutes(fastify: FastifyInstance): Promise<void> {
 
     return reply.send(rows[0]);
   });
+
+  /**
+   * POST /api/v1/pay-runs/:id/employees
+   * Manually add an employee to a draft pay run.
+   * Creates a pending pay_run_item so the employee is included in the next calculation.
+   */
+  fastify.post('/:id/employees', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { employee_id } = request.body as { employee_id: string };
+
+    if (!employee_id) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'employee_id is required' } });
+    }
+
+    const payRunRows = await query<{ id: string; status: string; tenant_id: string }>(
+      `SELECT id, status, tenant_id FROM pay_runs WHERE id = $1`, [id],
+    );
+    if (payRunRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Pay run not found' } });
+    }
+    if (payRunRows[0].status !== 'draft') {
+      return reply.status(409).send({ error: { code: 'INVALID_STATE', message: 'Employees can only be added to draft pay runs' } });
+    }
+
+    // Verify employee belongs to this tenant
+    const empRows = await query<{ id: string }>(
+      `SELECT id FROM employees WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [employee_id, payRunRows[0].tenant_id],
+    );
+    if (empRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Employee not found in this employer' } });
+    }
+
+    // Upsert — idempotent if already added
+    await query(
+      `INSERT INTO pay_run_items (pay_run_id, employee_id, status)
+       VALUES ($1, $2, 'pending')
+       ON CONFLICT (pay_run_id, employee_id) DO NOTHING`,
+      [id, employee_id],
+    );
+
+    return reply.status(201).send({ pay_run_id: id, employee_id, status: 'pending' });
+  });
+
+  /**
+   * DELETE /api/v1/pay-runs/:id/employees/:employeeId
+   * Remove an employee from a draft pay run.
+   */
+  fastify.delete('/:id/employees/:employeeId', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id, employeeId } = request.params as { id: string; employeeId: string };
+
+    const payRunRows = await query<{ status: string }>(
+      `SELECT status FROM pay_runs WHERE id = $1`, [id],
+    );
+    if (payRunRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Pay run not found' } });
+    }
+    if (payRunRows[0].status !== 'draft') {
+      return reply.status(409).send({ error: { code: 'INVALID_STATE', message: 'Employees can only be removed from draft pay runs' } });
+    }
+
+    await query(
+      `DELETE FROM pay_run_items WHERE pay_run_id = $1 AND employee_id = $2`,
+      [id, employeeId],
+    );
+
+    return reply.status(204).send();
+  });
+
+  /**
+   * GET /api/v1/pay-runs/:id/timesheets
+   * List timesheets attached to this pay run.
+   */
+  fastify.get('/:id/timesheets', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const rows = await query<{ id: string; employee_id: string; first_name: string; last_name: string; entries: unknown; total_hours: number }>(
+      `SELECT t.id, t.employee_id, e.first_name, e.last_name, t.entries,
+              (SELECT COALESCE(SUM((entry->>'hours')::numeric), 0)
+               FROM jsonb_array_elements(t.entries) AS entry) AS total_hours
+       FROM timesheets t
+       JOIN employees e ON e.id = t.employee_id
+       WHERE t.pay_run_id = $1
+       ORDER BY e.last_name, e.first_name`,
+      [id],
+    );
+    return reply.send(rows);
+  });
+
+  /**
+   * POST /api/v1/pay-runs/:id/timesheets
+   * Create or update a timesheet for an employee in this pay run.
+   * Body: { employee_id, total_hours } — stores as a single JSONB entry for the full period.
+   */
+  fastify.post('/:id/timesheets', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { employee_id, total_hours } = request.body as { employee_id: string; total_hours: number };
+
+    if (!employee_id || total_hours === undefined) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'employee_id and total_hours are required' } });
+    }
+
+    const payRunRows = await query<{ status: string; tenant_id: string; period_start: string; period_end: string }>(
+      `SELECT status, tenant_id, period_start, period_end FROM pay_runs WHERE id = $1`, [id],
+    );
+    if (payRunRows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Pay run not found' } });
+    }
+    if (payRunRows[0].status !== 'draft') {
+      return reply.status(409).send({ error: { code: 'INVALID_STATE', message: 'Timesheets can only be added to draft pay runs' } });
+    }
+
+    const { tenant_id, period_start, period_end } = payRunRows[0];
+
+    // Store as a single summarised entry for the full period
+    const entries = JSON.stringify([{ date: period_start, hours: total_hours, type: 'ordinary', notes: 'Entered via pay run' }]);
+
+    const rows = await query<{ id: string }>(
+      `INSERT INTO timesheets (tenant_id, employee_id, pay_run_id, period_start, period_end, entries, status)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'approved')
+       ON CONFLICT (employee_id, period_start, period_end)
+       DO UPDATE SET entries = $6::jsonb, pay_run_id = $3, status = 'approved'
+       RETURNING id`,
+      [tenant_id, employee_id, id, period_start, period_end, entries],
+    );
+
+    return reply.status(201).send({ id: rows[0].id, employee_id, pay_run_id: id, total_hours });
+  });
 }

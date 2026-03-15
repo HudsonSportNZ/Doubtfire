@@ -96,43 +96,107 @@ export async function runPayRunCalculation(payRunId: string): Promise<number> {
   const payRun = payRunRows[0];
   if (payRun.status !== 'calculating') throw new Error(`PAY_RUN_INVALID_STATE: expected calculating, got ${payRun.status}`);
 
-  // 2. Load all active employees on this pay schedule, with their effective pay settings
-  const employees = await query<EmployeePayRow>(
-    `SELECT
-       e.id AS employee_id,
-       e.first_name, e.last_name, e.jurisdiction,
-       e.tax_code,
-       e.kiwisaver_member,
-       e.kiwisaver_employee_rate,
-       e.kiwisaver_employer_rate,
-       e.tfn_declaration_status,
-       e.residency_for_tax,
-       e.tax_free_threshold_claimed,
-       e.help_hecs_debt,
-       e.super_guarantee_rate_override,
-       ps.pay_type,
-       ps.pay_rate,
-       ps.pay_frequency,
-       ps.hours_per_week
-     FROM employees e
-     JOIN pay_settings ps ON ps.employee_id = e.id
-       AND ps.effective_from <= $2
-       AND (ps.effective_to IS NULL OR ps.effective_to >= $2)
-     WHERE e.pay_schedule_id = $1
-       AND e.status = 'active'
-       AND e.deleted_at IS NULL`,
-    [payRun.pay_schedule_id, payRun.period_end],
+  // 2. Determine which employees to calculate.
+  //    If any pay_run_items exist already (manually added), use those.
+  //    Otherwise, auto-populate from the pay schedule (all active employees on it).
+  const manualItems = await query<{ employee_id: string }>(
+    `SELECT employee_id FROM pay_run_items WHERE pay_run_id = $1`,
+    [payRunId],
   );
+
+  let employeeSql: string;
+  let employeeParams: unknown[];
+
+  if (manualItems.length > 0) {
+    const ids = manualItems.map(r => r.employee_id);
+    // Use ANY($3::uuid[]) to filter to only the manually added employees
+    employeeSql = `
+      SELECT
+         e.id AS employee_id,
+         e.first_name, e.last_name, e.jurisdiction,
+         e.tax_code,
+         e.kiwisaver_member,
+         e.kiwisaver_employee_rate,
+         e.kiwisaver_employer_rate,
+         e.tfn_declaration_status,
+         e.residency_for_tax,
+         e.tax_free_threshold_claimed,
+         e.help_hecs_debt,
+         e.super_guarantee_rate_override,
+         ps.pay_type,
+         ps.pay_rate,
+         ps.pay_frequency,
+         ps.hours_per_week
+       FROM employees e
+       JOIN pay_settings ps ON ps.employee_id = e.id
+         AND ps.effective_from <= $1
+         AND (ps.effective_to IS NULL OR ps.effective_to >= $1)
+       WHERE e.id = ANY($2::uuid[])
+         AND e.deleted_at IS NULL`;
+    employeeParams = [payRun.period_end, ids];
+  } else {
+    employeeSql = `
+      SELECT
+         e.id AS employee_id,
+         e.first_name, e.last_name, e.jurisdiction,
+         e.tax_code,
+         e.kiwisaver_member,
+         e.kiwisaver_employee_rate,
+         e.kiwisaver_employer_rate,
+         e.tfn_declaration_status,
+         e.residency_for_tax,
+         e.tax_free_threshold_claimed,
+         e.help_hecs_debt,
+         e.super_guarantee_rate_override,
+         ps.pay_type,
+         ps.pay_rate,
+         ps.pay_frequency,
+         ps.hours_per_week
+       FROM employees e
+       JOIN pay_settings ps ON ps.employee_id = e.id
+         AND ps.effective_from <= $2
+         AND (ps.effective_to IS NULL OR ps.effective_to >= $2)
+       WHERE e.pay_schedule_id = $1
+         AND e.status = 'active'
+         AND e.deleted_at IS NULL`;
+    employeeParams = [payRun.pay_schedule_id, payRun.period_end];
+  }
+
+  const employees = await query<EmployeePayRow>(employeeSql, employeeParams);
 
   let processed = 0;
 
   for (const emp of employees) {
-    const grossWages = deriveGrossWages(
-      emp.pay_type,
-      Number(emp.pay_rate),
-      emp.pay_frequency,
-      emp.hours_per_week ? Number(emp.hours_per_week) : null,
+    // Check for a timesheet attached to this pay run for this employee.
+    // If found, use timesheet hours instead of the standard hours_per_week.
+    const timesheetRows = await query<{ total_hours: string }>(
+      `SELECT COALESCE(SUM((entry->>'hours')::numeric), 0)::text AS total_hours
+       FROM timesheets t, jsonb_array_elements(t.entries) AS entry
+       WHERE t.pay_run_id = $1 AND t.employee_id = $2`,
+      [payRunId, emp.employee_id],
     );
+    const timesheetHours = timesheetRows[0]?.total_hours
+      ? Number(timesheetRows[0].total_hours)
+      : null;
+
+    // For hourly/casual employees with a timesheet, use timesheet hours directly.
+    // For salary employees, timesheet hours are ignored — salary is always pro-rata.
+    const hoursForCalc = (timesheetHours !== null && timesheetHours > 0)
+      ? timesheetHours
+      : (emp.hours_per_week ? Number(emp.hours_per_week) : null);
+
+    // For hourly/casual + timesheet: gross = rate × actual hours (not per-period hours)
+    let grossWages: number;
+    if (timesheetHours !== null && timesheetHours > 0 && (emp.pay_type === 'hourly' || emp.pay_type === 'casual')) {
+      grossWages = Number(emp.pay_rate) * timesheetHours;
+    } else {
+      grossWages = deriveGrossWages(
+        emp.pay_type,
+        Number(emp.pay_rate),
+        emp.pay_frequency,
+        hoursForCalc,
+      );
+    }
 
     let result: CalcResult;
 
