@@ -12,6 +12,12 @@ export function fmtDate(iso) {
   return `${d}/${m}/${y}`;
 }
 
+export function fmtMoney(n, jur = "NZ") {
+  if (n === null || n === undefined) return "—";
+  const currency = jur === "AU" ? "AUD" : "NZD";
+  return new Intl.NumberFormat("en-NZ", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n));
+}
+
 export const REQUIRED_FIELDS = [
   { key: 'title',                      label: 'Title',           tab: 'General'    },
   { key: 'email',                      label: 'Email',           tab: 'General'    },

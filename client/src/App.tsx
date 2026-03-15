@@ -14,6 +14,7 @@ import PlaceholderPage from './pages/PlaceholderPage';
 import EmployeeDetailPage from './pages/EmployeeDetailPage';
 import EmployerDetailPage from './pages/EmployerDetailPage';
 import ClientDetailPage from './pages/ClientDetailPage';
+import PayRunDetailPage from './pages/PayRunDetailPage';
 
 export default function App() {
   return (
@@ -26,7 +27,8 @@ export default function App() {
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route index element={<DashboardPage />} />
             <Route path="/clients"     element={<ClientsPage />} />
-            <Route path="/pay-runs"    element={<PayRunsPage />} />
+            <Route path="/pay-runs"      element={<PayRunsPage />} />
+            <Route path="/pay-runs/:id"  element={<PayRunDetailPage />} />
             <Route path="/employees"   element={<EmployeesPage />} />
             <Route path="/employees/:id" element={<EmployeeDetailPage />} />
             <Route path="/clients/:id"   element={<ClientDetailPage />} />

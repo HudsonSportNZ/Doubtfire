@@ -8,9 +8,10 @@ export function Topbar({ jur, setJur, actionEl, userRole, setUserRole }) {
   const path = location.pathname;
   // Handle dynamic routes not in PATH_LABELS
   const dynamicLabel =
-    /^\/employees\//.test(path) ? "Employee" :
-    /^\/employers\//.test(path) ? "Employer" :
-    /^\/clients\//.test(path)   ? "Client"   : null;
+    /^\/employees\//.test(path)  ? "Employee" :
+    /^\/employers\//.test(path)  ? "Employer" :
+    /^\/clients\//.test(path)    ? "Client"   :
+    /^\/pay-runs\//.test(path)   ? "Pay Run"  : null;
   const label = dynamicLabel || PATH_LABELS[path] || path.replace("/", "");
 
   return (

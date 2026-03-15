@@ -1,0 +1,253 @@
+/**
+ * NZ Payroll Calculation Engine
+ *
+ * Computes PAYE, Student Loan, KiwiSaver, ESCT, and ACC for a single employee
+ * pay run item. All rates and thresholds are loaded from the database at runtime.
+ *
+ * Calculation order (per IRD specification):
+ *   1. Gross wages for the period
+ *   2. PAYE income tax (annualise → brackets/flat → IETC → de-annualise)
+ *   3. Student loan repayment (if tax code includes SL)
+ *   4. KiwiSaver employee contribution
+ *   5. KiwiSaver employer contribution
+ *   6. ESCT (tax on employer KiwiSaver contribution)
+ *   7. ACC earner levy
+ *   8. Net wages = gross − PAYE − student_loan − kiwisaver_ee − acc
+ *
+ * Rounding: ROUND_HALF_UP to 4 decimal places on every line item (money rules).
+ */
+
+import Decimal from 'decimal.js';
+import { loadScale } from './db-scales';
+import type {
+  CalcResult,
+  LineItem,
+  NzMarginalRateScale,
+  NzFlatRateScale,
+  NzAccLevyScale,
+  NzStudentLoanScale,
+  NzEsctScale,
+  TaxBracket,
+} from './types';
+
+// Configure Decimal.js to use ROUND_HALF_UP globally for this module
+Decimal.set({ rounding: Decimal.ROUND_HALF_UP, precision: 20 });
+
+/** Map NZ tax code → DB scale_type for PAYE lookup */
+const TAX_CODE_TO_SCALE: Record<string, string> = {
+  'M':      'NZ_PAYE_M',
+  'M SL':   'NZ_PAYE_M',   // same brackets as M; SL handled separately
+  'ME':     'NZ_PAYE_ME',
+  'ND':     'NZ_PAYE_ME',  // no declaration — same as ME (45% flat)
+  'S':      'NZ_PAYE_S',
+  'S SL':   'NZ_PAYE_S',
+  'SH':     'NZ_PAYE_SH',
+  'SH SL':  'NZ_PAYE_SH',
+  'ST':     'NZ_PAYE_ST',
+  'ST SL':  'NZ_PAYE_ST',
+  'SA':     'NZ_PAYE_SA',
+  'SA SL':  'NZ_PAYE_SA',
+  'SB':     'NZ_PAYE_SB',
+  'SB SL':  'NZ_PAYE_SB',
+  'CAE':    'NZ_PAYE_CAE',
+  'EDW':    'NZ_PAYE_EDW',
+  'NSW':    'NZ_PAYE_NSW',
+  'WT':     'NZ_PAYE_WT',
+};
+
+/** Annualise multiplier per pay frequency */
+const ANNUALISE: Record<string, number> = {
+  weekly:      52,
+  fortnightly: 26,
+  monthly:     12,
+};
+
+/** Round to 4dp HALF_UP */
+function round4(n: Decimal): Decimal {
+  return n.toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+}
+
+/** Apply marginal tax brackets to an annual income amount */
+function applyBrackets(annualIncome: Decimal, brackets: TaxBracket[]): Decimal {
+  let tax = new Decimal(0);
+  for (const bracket of brackets) {
+    const from = new Decimal(bracket.from);
+    const to = bracket.to === null ? null : new Decimal(bracket.to);
+    const rate = new Decimal(bracket.rate);
+
+    if (annualIncome.lte(from)) break;
+
+    const taxable = to === null
+      ? annualIncome.minus(from)
+      : Decimal.min(annualIncome, to).minus(from);
+
+    if (taxable.gt(0)) {
+      tax = tax.plus(taxable.times(rate));
+    }
+  }
+  return tax;
+}
+
+/** Calculate IETC (Independent Earner Tax Credit) for M / M SL codes */
+function calcIetc(annualIncome: Decimal, ietc: NzMarginalRateScale['ietc']): Decimal {
+  if (!ietc) return new Decimal(0);
+
+  const lower = new Decimal(ietc.lower_threshold);
+  const fullUpper = new Decimal(ietc.full_credit_upper);
+  const upper = new Decimal(ietc.upper_threshold);
+  const credit = new Decimal(ietc.annual_credit);
+  const abateRate = new Decimal(ietc.abatement_rate);
+
+  if (annualIncome.lt(lower) || annualIncome.gte(upper)) return new Decimal(0);
+  if (annualIncome.lte(fullUpper)) return credit;
+
+  // Abates between full_credit_upper and upper_threshold
+  return Decimal.max(0, credit.minus(annualIncome.minus(fullUpper).times(abateRate)));
+}
+
+export interface NzCalcInput {
+  employeeId: string;
+  taxCode: string;
+  grossWages: number;               // period gross (pre-deduction)
+  frequency: string;                // weekly | fortnightly | monthly
+  kiwiSaverMember: boolean;
+  kiwiSaverEmployeeRate: number;    // e.g. 0.03
+  kiwiSaverEmployerRate: number;    // e.g. 0.03
+  annualGrossEstimate: number;      // best estimate of annual gross for ESCT bracket lookup
+  periodEnd: string;                // YYYY-MM-DD — used for scale effective-date lookups
+}
+
+export async function calculateNZ(input: NzCalcInput): Promise<CalcResult> {
+  const {
+    taxCode, grossWages, frequency, kiwiSaverMember,
+    kiwiSaverEmployeeRate, kiwiSaverEmployerRate,
+    annualGrossEstimate, periodEnd,
+  } = input;
+
+  const scalesUsed: Record<string, string> = {};
+  const lineItems: LineItem[] = [];
+  const gross = new Decimal(grossWages);
+  const multiplier = ANNUALISE[frequency];
+  if (!multiplier) throw new Error(`Unknown pay frequency: ${frequency}`);
+
+  // ── Gross ──────────────────────────────────────────────────────────────────
+  lineItems.push({ code: 'ORDINARY', amount: round4(gross).toNumber(), is_taxable: true });
+
+  // ── PAYE income tax ────────────────────────────────────────────────────────
+  const scaleType = TAX_CODE_TO_SCALE[taxCode.toUpperCase()];
+  if (!scaleType) {
+    throw new Error(`CONFIG_ERROR: Unknown NZ tax code "${taxCode}". Check the employee's tax code.`);
+  }
+
+  const { id: scaleId, definition: scaleDef } = await loadScale<NzMarginalRateScale | NzFlatRateScale>(
+    'NZ', scaleType, periodEnd,
+  );
+  scalesUsed[scaleType] = scaleId;
+
+  let annualPaye = new Decimal(0);
+  const annualGross = gross.times(multiplier);
+  const accApplies = (scaleDef as NzFlatRateScale).acc_applies !== false;
+
+  if (scaleDef.type === 'nz_marginal_rate') {
+    annualPaye = applyBrackets(annualGross, scaleDef.brackets);
+    // Subtract IETC if applicable
+    if (scaleDef.ietc) {
+      const ietcCredit = calcIetc(annualGross, scaleDef.ietc);
+      annualPaye = Decimal.max(0, annualPaye.minus(ietcCredit));
+    }
+  } else if (scaleDef.type === 'nz_flat_rate') {
+    annualPaye = annualGross.times(scaleDef.rate);
+  }
+
+  const periodPaye = round4(annualPaye.div(multiplier));
+  lineItems.push({ code: 'PAYE', amount: periodPaye.toNumber(), is_taxable: false });
+
+  // ── Student Loan ───────────────────────────────────────────────────────────
+  let periodStudentLoan = new Decimal(0);
+  const hasSL = taxCode.toUpperCase().includes('SL');
+  if (hasSL) {
+    const { id: slId, definition: slDef } = await loadScale<NzStudentLoanScale>(
+      'NZ', 'NZ_STUDENT_LOAN', periodEnd,
+    );
+    scalesUsed['NZ_STUDENT_LOAN'] = slId;
+
+    const slThreshold = new Decimal(slDef.annual_threshold);
+    const slRate = new Decimal(slDef.rate);
+    const repayableAnnual = Decimal.max(0, annualGross.minus(slThreshold));
+    periodStudentLoan = round4(repayableAnnual.times(slRate).div(multiplier));
+    lineItems.push({ code: 'STUDENT_LOAN', amount: periodStudentLoan.toNumber(), is_taxable: false });
+  }
+
+  // ── KiwiSaver ──────────────────────────────────────────────────────────────
+  // KiwiSaver does not apply to WT (schedular) or NSW (no-special-withholding) income
+  const kiwiSaverEligible = kiwiSaverMember && !['NZ_PAYE_WT', 'NZ_PAYE_NSW'].includes(scaleType);
+
+  let periodKsEe = new Decimal(0);
+  let periodKsEr = new Decimal(0);
+  let periodEsct = new Decimal(0);
+
+  if (kiwiSaverEligible) {
+    periodKsEe = round4(gross.times(kiwiSaverEmployeeRate));
+    periodKsEr = round4(gross.times(kiwiSaverEmployerRate));
+    lineItems.push({ code: 'KIWISAVER_EE', amount: periodKsEe.toNumber(), is_taxable: false });
+    lineItems.push({ code: 'KIWISAVER_ER', amount: periodKsEr.toNumber(), is_taxable: false });
+
+    // ESCT: tax on the employer contribution, based on employee's annual gross estimate
+    const { id: esctId, definition: esctDef } = await loadScale<NzEsctScale>(
+      'NZ', 'NZ_ESCT', periodEnd,
+    );
+    scalesUsed['NZ_ESCT'] = esctId;
+
+    const esctAnnual = new Decimal(annualGrossEstimate);
+    let esctRate = new Decimal(0);
+    for (const bracket of esctDef.brackets) {
+      if (esctAnnual.gt(bracket.from)) {
+        esctRate = new Decimal(bracket.rate);
+      }
+    }
+    periodEsct = round4(periodKsEr.times(esctRate));
+    lineItems.push({ code: 'ESCT', amount: periodEsct.toNumber(), is_taxable: false });
+  }
+
+  // ── ACC Earner Levy ────────────────────────────────────────────────────────
+  let periodAcc = new Decimal(0);
+  if (accApplies) {
+    const { id: accId, definition: accDef } = await loadScale<NzAccLevyScale>(
+      'NZ', 'NZ_ACC_LEVY', periodEnd,
+    );
+    scalesUsed['NZ_ACC_LEVY'] = accId;
+
+    const periodAccCap = new Decimal(accDef.annual_maximum_liable_earnings).div(multiplier);
+    const liableEarnings = Decimal.min(gross, periodAccCap);
+    periodAcc = round4(liableEarnings.times(accDef.rate));
+    lineItems.push({ code: 'ACC_LEVY', amount: periodAcc.toNumber(), is_taxable: false });
+  }
+
+  // ── Net wages ──────────────────────────────────────────────────────────────
+  // Employee take-home: gross minus all employee-side deductions
+  const netWages = round4(
+    gross
+      .minus(periodPaye)
+      .minus(periodStudentLoan)
+      .minus(periodKsEe)
+      .minus(periodAcc),
+  );
+
+  return {
+    gross_wages:    round4(gross).toNumber(),
+    paye_tax:       periodPaye.toNumber(),
+    student_loan:   periodStudentLoan.toNumber(),
+    kiwisaver_ee:   periodKsEe.toNumber(),
+    kiwisaver_er:   periodKsEr.toNumber(),
+    esct:           periodEsct.toNumber(),
+    acc_levy:       periodAcc.toNumber(),
+    super_ee:       0,
+    super_er:       0,
+    medicare:       0,
+    help_repayment: 0,
+    net_wages:      netWages.toNumber(),
+    line_items:     lineItems,
+    inputs_snapshot: { ...input },
+    scales_used:    scalesUsed,
+  };
+}

@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { B, BL, TX, TM, TT, WH, BR, GN, AM, F } from "../lib/constants";
 import { FREQ_LABELS, FREQ_COLORS, ICONS } from "../lib/constants";
-import { API_URL, apiHeaders, fmtDate } from "../lib/api";
+import { API_URL, apiHeaders, fmtDate, fmtMoney } from "../lib/api";
 import {
   Icon, Badge, JurTag, Btn, Card, TabBar,
-  FormField, TextInput, ErrorMsg, ModalActions,
+  FormField, TextInput, ErrorMsg, ModalActions, TH, TD,
 } from "../components/ui";
 
 export default function EmployerDetailPage() {
@@ -21,12 +21,15 @@ export default function EmployerDetailPage() {
   const [schedules,     setSchedules]     = useState([]);
   const [showSchForm,   setShowSchForm]   = useState(false);
   const [schValues,     setSchValues]     = useState({ name:"", frequency:"weekly", period_start:"", period_end:"", pay_date:"" });
+  const [payRuns,       setPayRuns]       = useState([]);
+  const [showPrForm,    setShowPrForm]    = useState(false);
+  const [prValues,      setPrValues]      = useState({ pay_schedule_id:"", period_start:"", period_end:"", pay_date:"", run_type:"regular" });
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState(null);
 
   const selStyle = {width:"100%",border:`1.5px solid ${BR}`,borderRadius:7,padding:"9px 13px",fontSize:13.5,fontFamily:F,color:TX,background:WH};
 
-  useEffect(() => { loadEmployer(); loadSchedules(); }, [id]);
+  useEffect(() => { loadEmployer(); loadSchedules(); loadPayRuns(); }, [id]);
 
   async function loadEmployer() {
     setLoading(true);
@@ -43,6 +46,35 @@ export default function EmployerDetailPage() {
   async function loadSchedules() {
     const res = await fetch(`${API_URL}/api/v1/tenants/${id}/pay-schedules`, { headers: apiHeaders() });
     if (res.ok) setSchedules(await res.json());
+  }
+
+  async function loadPayRuns() {
+    const res = await fetch(`${API_URL}/api/v1/tenants/${id}/pay-runs`, { headers: apiHeaders() });
+    if (res.ok) setPayRuns(await res.json());
+  }
+
+  async function createPayRun() {
+    setSaving(true); setError(null);
+    try {
+      const body = {
+        pay_schedule_id: prValues.pay_schedule_id,
+        period_start: prValues.period_start,
+        period_end: prValues.period_end,
+        pay_date: prValues.pay_date,
+        run_type: prValues.run_type,
+      };
+      const res = await fetch(`${API_URL}/api/v1/tenants/${id}/pay-runs`, {
+        method: "POST",
+        headers: { ...apiHeaders(), "X-Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data?.error?.message || "Failed to create pay run"); return; }
+      setPayRuns(prev => [data, ...prev]);
+      setShowPrForm(false);
+      setPrValues({ pay_schedule_id:"", period_start:"", period_end:"", pay_date:"", run_type:"regular" });
+      navigate(`/pay-runs/${data.id}`);
+    } finally { setSaving(false); }
   }
 
   async function saveDetails() {
@@ -134,7 +166,7 @@ export default function EmployerDetailPage() {
       </div>
 
       {/* Tabs */}
-      <TabBar tabs={["Details","Jurisdictions","Pay Schedules"]} active={tab} setActive={t=>{ setTab(t); setError(null); }}/>
+      <TabBar tabs={["Details","Jurisdictions","Pay Schedules","Pay Runs"]} active={tab} setActive={t=>{ setTab(t); setError(null); }}/>
 
       <div style={{maxWidth:620,marginTop:20}}>
 
@@ -271,6 +303,88 @@ export default function EmployerDetailPage() {
               </>
             )}
           </Card>
+        )}
+
+        {/* PAY RUNS */}
+        {tab === "Pay Runs" && (
+          <div style={{maxWidth:"100%"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <span style={{fontSize:13.5,color:TM,fontFamily:F}}>{payRuns.length} pay run{payRuns.length !== 1 ? "s" : ""}</span>
+              <Btn icon="plus" onClick={()=>{ setShowPrForm(true); setError(null); }}>New Pay Run</Btn>
+            </div>
+
+            {showPrForm && (
+              <Card style={{padding:24,marginBottom:20}}>
+                <div style={{fontSize:12,fontWeight:700,color:TM,textTransform:"uppercase",letterSpacing:.5,fontFamily:F,marginBottom:14}}>New Pay Run</div>
+                <FormField label="Pay Schedule">
+                  <select value={prValues.pay_schedule_id} onChange={e=>setPrValues(p=>({...p,pay_schedule_id:e.target.value}))} style={selStyle}>
+                    <option value="">— select a schedule —</option>
+                    {schedules.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.frequency})</option>
+                    ))}
+                  </select>
+                </FormField>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  <FormField label="Period Start">
+                    <TextInput type="date" value={prValues.period_start} onChange={v=>setPrValues(p=>({...p,period_start:v}))} />
+                  </FormField>
+                  <FormField label="Period End">
+                    <TextInput type="date" value={prValues.period_end} onChange={v=>setPrValues(p=>({...p,period_end:v}))} />
+                  </FormField>
+                  <FormField label="Pay Date">
+                    <TextInput type="date" value={prValues.pay_date} onChange={v=>setPrValues(p=>({...p,pay_date:v}))} />
+                  </FormField>
+                </div>
+                {error && <ErrorMsg>{error}</ErrorMsg>}
+                <ModalActions>
+                  <Btn ghost onClick={()=>{ setShowPrForm(false); setError(null); }}>Cancel</Btn>
+                  <Btn onClick={createPayRun} disabled={!prValues.pay_schedule_id || !prValues.period_start || !prValues.period_end || !prValues.pay_date}>
+                    {saving ? "Creating…" : "Create Pay Run"}
+                  </Btn>
+                </ModalActions>
+              </Card>
+            )}
+
+            {payRuns.length === 0 && !showPrForm ? (
+              <Card style={{padding:40,textAlign:"center"}}>
+                <div style={{fontSize:13.5,color:TT,fontFamily:F,marginBottom:12}}>No pay runs yet for this employer.</div>
+                <Btn icon="plus" onClick={()=>{ setShowPrForm(true); setError(null); }}>Create First Pay Run</Btn>
+              </Card>
+            ) : (
+              <Card style={{padding:0,overflow:"hidden"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr>
+                      <TH>Schedule</TH>
+                      <TH>Period</TH>
+                      <TH>Pay Date</TH>
+                      <TH>Status</TH>
+                      <TH>Employees</TH>
+                      <TH>Gross</TH>
+                      <TH>Net</TH>
+                      <TH></TH>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payRuns.map(r => (
+                      <tr key={r.id} className="trow" style={{cursor:"pointer"}} onClick={()=>navigate(`/pay-runs/${r.id}`)}>
+                        <TD bold>{r.schedule_name || "—"}</TD>
+                        <TD muted>{fmtDate(r.period_start)} – {fmtDate(r.period_end)}</TD>
+                        <TD>{fmtDate(r.pay_date)}</TD>
+                        <TD><Badge s={r.status}/></TD>
+                        <TD mono>{r.employee_count ?? "—"}</TD>
+                        <TD mono>{fmtMoney(r.totals?.gross_wages, employer?.jurisdiction)}</TD>
+                        <TD mono>{fmtMoney(r.totals?.net_wages, employer?.jurisdiction)}</TD>
+                        <td style={{padding:"12px 14px",borderBottom:"1px solid #f0eef7"}}>
+                          <span style={{color:B,fontWeight:600,fontSize:12.5,fontFamily:F}}>Open →</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            )}
+          </div>
         )}
       </div>
     </div>

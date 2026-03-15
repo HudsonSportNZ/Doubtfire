@@ -5,6 +5,7 @@ import { bureauRoutes } from './bureaus';
 import { tenantRoutes } from './tenants';
 import { employeeRoutes } from './employees';
 import { reportRoutes } from './reports';
+import { payRunTenantRoutes, payRunRoutes } from './pay-runs';
 
 /**
  * Register all route modules here.
@@ -23,6 +24,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
   // Admin reports (platform_admin only)
   await fastify.register(reportRoutes, { prefix: '/api/v1/admin/reports' });
 
-  // Phase 5+:
-  // await fastify.register(payRunRoutes, { prefix: '/api/v1/pay-runs' });
+  // Phase 5 — Pay Run Engine
+  await fastify.register(payRunTenantRoutes, { prefix: '/api/v1/tenants' });
+  await fastify.register(payRunRoutes, { prefix: '/api/v1/pay-runs' });
 }
