@@ -37,6 +37,94 @@ function Modal({ title, onClose, children }) {
   );
 }
 
+function StepRow({ step, depth = 0 }) {
+  const [open, setOpen] = useState(false);
+  const hasSub = step.sub && step.sub.length > 0;
+  const indent = depth * 20;
+  return (
+    <>
+      <div
+        onClick={() => hasSub && setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0",
+          borderBottom: "1px solid #f0eef7", cursor: hasSub ? "pointer" : "default",
+          paddingLeft: indent,
+        }}
+      >
+        <div style={{ flex: "0 0 20px", color: TT, fontSize: 13, marginTop: 1 }}>
+          {hasSub ? (open ? "▾" : "▸") : ""}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: TX, fontFamily: F, marginBottom: 2 }}>{step.label}</div>
+          <div style={{ fontSize: 12, color: TT, fontFamily: "monospace", wordBreak: "break-word", lineHeight: 1.5 }}>{step.formula}</div>
+          {step.note && <div style={{ fontSize: 11, color: "#7b6fa0", marginTop: 3, fontFamily: F }}>{step.note}</div>}
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 13.5, color: "#39175D", fontFamily: "monospace", whiteSpace: "nowrap", marginTop: 1 }}>
+          {step.result}
+        </div>
+      </div>
+      {open && hasSub && step.sub.map((s, i) => (
+        <StepRow key={i} step={s} depth={depth + 1} />
+      ))}
+    </>
+  );
+}
+
+function BreakdownModal({ item, jur, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
+  const [showInputs, setShowInputs] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/v1/pay-runs/${item.pay_run_id}/items/${item.id}/breakdown`, { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => { setFetchError("Failed to load calculation breakdown"); setLoading(false); });
+  }, [item.id]);
+
+  const steps = data?.outputs?.steps || [];
+  const inputs = data?.inputs || {};
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 1000, overflowY: "auto", padding: "40px 16px" }}>
+      <div style={{ background: "#fff", borderRadius: 12, width: 620, maxWidth: "96vw", boxShadow: "0 8px 40px rgba(0,0,0,.18)", marginBottom: 40 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", borderBottom: "1.5px solid #f0eef7" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: TX, fontFamily: F }}>{item.first_name} {item.last_name} — Calculation Breakdown</div>
+            <div style={{ fontSize: 12, color: TT, fontFamily: F, marginTop: 3 }}>
+              {jur} · Engine {data?.engine_version || "…"} · {data?.created_at ? new Date(data.created_at).toLocaleString() : ""}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: TT, fontSize: 22, lineHeight: 1, padding: "0 4px" }}>×</button>
+        </div>
+        <div style={{ padding: "16px 24px" }}>
+          {loading && <div style={{ color: TT, fontFamily: F, fontSize: 13, padding: "20px 0" }}>Loading…</div>}
+          {fetchError && <div style={{ color: "#8a1f1f", fontFamily: F, fontSize: 13 }}>{fetchError}</div>}
+          {!loading && !fetchError && steps.length === 0 && (
+            <div style={{ color: TT, fontFamily: F, fontSize: 13 }}>No step data — this pay run was calculated before breakdown tracking was added. Recalculate to generate steps.</div>
+          )}
+          {steps.map((step, i) => <StepRow key={i} step={step} depth={0} />)}
+        </div>
+        {!loading && !fetchError && (
+          <div style={{ padding: "12px 24px", borderTop: "1.5px solid #f0eef7" }}>
+            <button
+              onClick={() => setShowInputs(o => !o)}
+              style={{ background: "none", border: "none", color: "#7b6fa0", fontSize: 12, cursor: "pointer", fontFamily: F, fontWeight: 600, padding: 0 }}>
+              {showInputs ? "Hide" : "Show"} raw inputs
+            </button>
+            {showInputs && (
+              <pre style={{ fontSize: 11, color: TM, fontFamily: "monospace", marginTop: 10, background: "#f7f5fb", borderRadius: 6, padding: "10px 14px", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                {JSON.stringify(inputs, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PayRunDetailPage() {
   const { id }   = useParams();
   const navigate = useNavigate();
@@ -63,6 +151,9 @@ export default function PayRunDetailPage() {
 
   // Saved timesheets: map of employee_id → total_hours
   const [timesheetMap,  setTimesheetMap]  = useState({});
+
+  // Breakdown modal
+  const [breakdownItem, setBreakdownItem] = useState(null);
 
   useEffect(() => { load(); }, [id]);
 
@@ -359,6 +450,12 @@ export default function PayRunDetailPage() {
                             {expanded[item.id] ? "Hide" : "Details"}
                           </button>
                         )}
+                        {item.status === "calculated" && (
+                          <button onClick={() => setBreakdownItem(item)}
+                            style={{ background: "none", border: `1px solid #39175D`, color: "#39175D", borderRadius: 5, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", fontFamily: F, fontWeight: 600, whiteSpace: "nowrap" }}>
+                            Breakdown
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -433,6 +530,11 @@ export default function PayRunDetailPage() {
             </>
           )}
         </Modal>
+      )}
+
+      {/* ── Breakdown Modal ────────────────────────────────────────────────── */}
+      {breakdownItem && (
+        <BreakdownModal item={breakdownItem} jur={jur} onClose={() => setBreakdownItem(null)} />
       )}
 
       {/* ── Set Hours Modal ────────────────────────────────────────────────── */}

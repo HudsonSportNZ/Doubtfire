@@ -140,6 +140,14 @@ export interface LineItem {
   is_taxable: boolean;
 }
 
+export interface CalcStep {
+  label: string;      // e.g. "PAYE Income Tax"
+  formula: string;    // e.g. "$62,400 × 26 = Annual gross $1,622,400"
+  result: string;     // e.g. "$451.54"
+  note?: string;      // e.g. "Tax code: M — using NZ_PAYE_M scale"
+  sub?: CalcStep[];   // bracket-level detail
+}
+
 export interface CalcResult {
   gross_wages: number;
   paye_tax: number;         // NZ: PAYE income tax only (not student loan)
@@ -156,4 +164,5 @@ export interface CalcResult {
   line_items: LineItem[];
   inputs_snapshot: Record<string, unknown>;
   scales_used: Record<string, string>;  // { scale_type: scale_row_id }
+  steps: CalcStep[];
 }

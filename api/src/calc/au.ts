@@ -22,6 +22,7 @@ import Decimal from 'decimal.js';
 import { loadScale, loadSuperRate } from './db-scales';
 import type {
   CalcResult,
+  CalcStep,
   LineItem,
   AuPaygMarginalScale,
   AuPaygFlatScale,
@@ -42,9 +43,23 @@ function round4(n: Decimal): Decimal {
   return n.toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
 }
 
-function applyBrackets(annualIncome: Decimal, brackets: TaxBracket[]): Decimal {
+function fmt(n: Decimal | number): string {
+  return '$' + new Decimal(n).toFixed(2);
+}
+
+function pct(r: number): string {
+  return (r * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+}
+
+function applyBracketsWithSteps(
+  annualIncome: Decimal,
+  brackets: TaxBracket[],
+): { tax: Decimal; subSteps: CalcStep[] } {
   let tax = new Decimal(0);
-  for (const bracket of brackets) {
+  const subSteps: CalcStep[] = [];
+
+  for (let i = 0; i < brackets.length; i++) {
+    const bracket = brackets[i];
     const from = new Decimal(bracket.from);
     const to = bracket.to === null ? null : new Decimal(bracket.to);
     const rate = new Decimal(bracket.rate);
@@ -56,10 +71,19 @@ function applyBrackets(annualIncome: Decimal, brackets: TaxBracket[]): Decimal {
       : Decimal.min(annualIncome, to).minus(from);
 
     if (taxable.gt(0)) {
-      tax = tax.plus(taxable.times(rate));
+      const bracketTax = taxable.times(rate);
+      tax = tax.plus(bracketTax);
+
+      const toLabel = bracket.to !== null ? fmt(bracket.to) : 'and over';
+      subSteps.push({
+        label: `Bracket ${i + 1}: ${fmt(bracket.from)} – ${toLabel} @ ${pct(bracket.rate)}`,
+        formula: `${fmt(taxable)} × ${pct(bracket.rate)} = ${fmt(bracketTax)}`,
+        result: fmt(bracketTax),
+      });
     }
   }
-  return tax;
+
+  return { tax, subSteps };
 }
 
 /**
@@ -108,6 +132,27 @@ function resolveScaleType(
   }
 }
 
+function describeScaleSelection(
+  tfnStatus: string | null,
+  residency: string | null,
+  taxFreeThresholdClaimed: boolean | null,
+  scaleType: string,
+): string {
+  if (!tfnStatus || tfnStatus === 'not_provided') {
+    return `No TFN provided → ${scaleType} (withhold at top marginal rate)`;
+  }
+  switch (residency) {
+    case 'foreign_resident':
+      return `Foreign resident → ${scaleType}`;
+    case 'working_holiday_maker':
+      return `Working holiday maker → ${scaleType}`;
+    default:
+      return taxFreeThresholdClaimed
+        ? `Resident, tax-free threshold claimed → ${scaleType} (Scale 1)`
+        : `Resident, no tax-free threshold → ${scaleType} (Scale 2)`;
+  }
+}
+
 export interface AuCalcInput {
   employeeId: string;
   grossWages: number;
@@ -130,15 +175,31 @@ export async function calculateAU(input: AuCalcInput): Promise<CalcResult> {
 
   const scalesUsed: Record<string, string> = {};
   const lineItems: LineItem[] = [];
+  const steps: CalcStep[] = [];
   const gross = new Decimal(grossWages);
   const multiplier = ANNUALISE[frequency];
   if (!multiplier) throw new Error(`Unknown pay frequency: ${frequency}`);
 
   lineItems.push({ code: 'ORDINARY', amount: round4(gross).toNumber(), is_taxable: true });
 
+  // Step 1 — Gross wages
+  steps.push({
+    label: 'Gross Wages (this period)',
+    formula: `${fmt(gross)} — ${frequency} pay, ${multiplier} periods/year`,
+    result: fmt(gross),
+  });
+
   // ── Annualise ──────────────────────────────────────────────────────────────
   const annualGross = gross.times(multiplier);
   const scaleType = resolveScaleType(tfnDeclarationStatus, residencyForTax, taxFreeThresholdClaimed);
+
+  // Step 2 — Annual gross
+  steps.push({
+    label: 'Annual Gross (for tax calculation)',
+    formula: `${fmt(gross)} × ${multiplier} periods = ${fmt(annualGross)}`,
+    result: fmt(annualGross),
+    note: describeScaleSelection(tfnDeclarationStatus, residencyForTax, taxFreeThresholdClaimed, scaleType),
+  });
 
   // ── PAYG income tax ────────────────────────────────────────────────────────
   const { id: scaleId, definition: scaleDef } = await loadScale<AuPaygMarginalScale | AuPaygFlatScale>(
@@ -150,11 +211,47 @@ export async function calculateAU(input: AuCalcInput): Promise<CalcResult> {
 
   if (scaleDef.type === 'au_payg_flat') {
     annualIncomeTax = annualGross.times(scaleDef.rate);
+    const periodIncomeTax = round4(annualIncomeTax.div(multiplier));
+    steps.push({
+      label: 'PAYG Income Tax',
+      formula: `${fmt(annualGross)} × ${pct(scaleDef.rate)} = ${fmt(annualIncomeTax)}, de-annualised: ${fmt(periodIncomeTax)}`,
+      result: `${fmt(periodIncomeTax)} / period`,
+      note: `Flat rate — ${scaleType}${scaleDef.note ? ' — ' + scaleDef.note : ''}`,
+    });
   } else {
     // au_payg_marginal
-    annualIncomeTax = applyBrackets(annualGross, scaleDef.brackets);
+    const { tax: bracketTax, subSteps: bracketSubSteps } = applyBracketsWithSteps(annualGross, scaleDef.brackets);
     const lito = calcLito(annualGross, scaleDef.lito);
-    annualIncomeTax = Decimal.max(0, annualIncomeTax.minus(lito));
+    annualIncomeTax = Decimal.max(0, bracketTax.minus(lito));
+
+    const periodIncomeTax = round4(annualIncomeTax.div(multiplier));
+
+    const paySub: CalcStep[] = [...bracketSubSteps];
+    if (scaleDef.lito) {
+      const litoNote = lito.eq(scaleDef.lito.max_offset)
+        ? `Income ${fmt(annualGross)} ≤ phase-out threshold — full LITO ${fmt(lito)}`
+        : lito.gt(0)
+          ? `Income ${fmt(annualGross)} in phase-out range — reduced to ${fmt(lito)}`
+          : `Income ${fmt(annualGross)} above phase-out — LITO $0.00`;
+      paySub.push({
+        label: 'Less: LITO (Low Income Tax Offset)',
+        formula: litoNote,
+        result: lito.gt(0) ? `-${fmt(lito)}` : '$0.00',
+      });
+    }
+    paySub.push({
+      label: 'De-annualised',
+      formula: `${fmt(annualIncomeTax)} ÷ ${multiplier} periods`,
+      result: fmt(periodIncomeTax),
+    });
+
+    steps.push({
+      label: 'PAYG Income Tax',
+      formula: `Annual gross ${fmt(annualGross)} → annual tax ${fmt(annualIncomeTax)}`,
+      result: `${fmt(periodIncomeTax)} / period`,
+      note: `${scaleType}${scaleDef.scale_name ? ' — ' + scaleDef.scale_name : ''}`,
+      sub: paySub,
+    });
   }
 
   // ── Medicare levy ──────────────────────────────────────────────────────────
@@ -172,21 +269,35 @@ export async function calculateAU(input: AuCalcInput): Promise<CalcResult> {
     const standardRate = new Decimal(medDef.standard_rate);
     const shadeInRate = new Decimal(medDef.shade_in_rate);
 
+    let medicareNote: string;
+
     if (annualGross.lte(threshold)) {
       annualMedicare = new Decimal(0);
+      medicareNote = `Income ${fmt(annualGross)} below threshold ${fmt(threshold)} — no Medicare levy`;
     } else if (annualGross.gt(shadeInUpper)) {
       annualMedicare = annualGross.times(standardRate);
+      medicareNote = `Income ${fmt(annualGross)} above shade-in range — full rate ${pct(medDef.standard_rate)}`;
     } else {
       // Shade-in: levy is capped at shade_in_rate × (income − threshold)
       annualMedicare = Decimal.min(
         annualGross.times(standardRate),
         annualGross.minus(threshold).times(shadeInRate),
       );
+      medicareNote = `Income ${fmt(annualGross)} in shade-in range — levy capped at shade-in rate`;
     }
+
+    const periodMedicarePre = round4(annualMedicare.div(multiplier));
+    steps.push({
+      label: 'Medicare Levy',
+      formula: `Annual ${fmt(annualMedicare)} ÷ ${multiplier} periods`,
+      result: fmt(periodMedicarePre),
+      note: medicareNote,
+    });
   }
 
   // ── HELP / HECS repayment ──────────────────────────────────────────────────
   let annualHelp = new Decimal(0);
+  let helpBandNote = '';
   if (helpHecsDept) {
     const { id: helpId, definition: helpDef } = await loadScale<AuHelpScale>(
       'AU', 'AU_HELP', periodEnd,
@@ -197,9 +308,19 @@ export async function calculateAU(input: AuCalcInput): Promise<CalcResult> {
     for (const t of helpDef.thresholds) {
       if (annualGross.gt(t.from) && (t.to === null || annualGross.lte(t.to))) {
         annualHelp = annualGross.times(t.rate);
+        const toLabel = t.to !== null ? fmt(t.to) : 'and over';
+        helpBandNote = `Band: ${fmt(t.from)} – ${toLabel} @ ${pct(t.rate)}`;
         break;
       }
     }
+
+    const periodHelpPre = round4(annualHelp.div(multiplier));
+    steps.push({
+      label: 'HELP/HECS Repayment',
+      formula: `${fmt(annualGross)} × applicable rate = ${fmt(annualHelp)}, de-annualised: ${fmt(periodHelpPre)}`,
+      result: fmt(periodHelpPre),
+      note: helpBandNote || 'Income below HELP threshold — no repayment',
+    });
   }
 
   // ── De-annualise and round ─────────────────────────────────────────────────
@@ -218,20 +339,36 @@ export async function calculateAU(input: AuCalcInput): Promise<CalcResult> {
 
   // ── Superannuation ─────────────────────────────────────────────────────────
   let superRate: Decimal;
+  let superNote: string;
   if (superGuaranteeRateOverride !== null) {
     superRate = new Decimal(superGuaranteeRateOverride);
     scalesUsed['SUPER_RATE_OVERRIDE'] = 'employee_override';
+    superNote = `Override rate ${pct(superGuaranteeRateOverride)} (employee-specific)`;
   } else {
     const { id: srId, rate: sr } = await loadSuperRate(periodEnd);
     superRate = new Decimal(sr);
     scalesUsed['SUPER_RATE'] = srId;
+    superNote = `Legislated SGA rate ${pct(sr)} for this period`;
   }
 
   const periodSuperEr = round4(gross.times(superRate));
   lineItems.push({ code: 'SUPER_ER', amount: periodSuperEr.toNumber(), is_taxable: false });
 
+  steps.push({
+    label: 'Superannuation (Employer Contribution)',
+    formula: `${fmt(gross)} × ${pct(superRate.toNumber())} = ${fmt(periodSuperEr)}`,
+    result: fmt(periodSuperEr),
+    note: `${superNote} — employer cost, not deducted from employee`,
+  });
+
   // ── Net wages ──────────────────────────────────────────────────────────────
   const netWages = round4(gross.minus(periodPayg));
+
+  steps.push({
+    label: 'Net Wages',
+    formula: `${fmt(gross)} − ${fmt(periodPayg)} PAYG withholding`,
+    result: fmt(netWages),
+  });
 
   return {
     gross_wages:    round4(gross).toNumber(),
@@ -249,5 +386,6 @@ export async function calculateAU(input: AuCalcInput): Promise<CalcResult> {
     line_items:     lineItems,
     inputs_snapshot: { ...input },
     scales_used:    scalesUsed,
+    steps,
   };
 }

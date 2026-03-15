@@ -572,4 +572,25 @@ export async function payRunRoutes(fastify: FastifyInstance): Promise<void> {
 
     return reply.status(201).send({ id: rows[0].id, employee_id, pay_run_id: id, total_hours });
   });
+
+  /**
+   * GET /api/v1/pay-runs/:id/items/:itemId/breakdown
+   * Returns the calculation snapshot (inputs + outputs including steps) for one employee item.
+   */
+  fastify.get('/:id/items/:itemId/breakdown', { preHandler: [authenticate] }, async (request, reply) => {
+    const { itemId } = request.params as { id: string; itemId: string };
+
+    const rows = await query<{ inputs: unknown; outputs: unknown; engine_version: string; created_at: string }>(
+      `SELECT inputs, outputs, engine_version, created_at
+       FROM calculation_snapshots
+       WHERE pay_run_item_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [itemId],
+    );
+    if (rows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'No calculation snapshot found for this item' } });
+    }
+    return reply.send(rows[0]);
+  });
 }

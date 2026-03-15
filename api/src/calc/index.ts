@@ -299,6 +299,7 @@ export async function runPayRunCalculation(payRunId: string): Promise<number> {
             help_repayment: result.help_repayment,
             net_wages:      result.net_wages,
             line_items:     result.line_items,
+            steps:          result.steps,
           }),
           JSON.stringify(result.scales_used),
           ENGINE_VERSION,
