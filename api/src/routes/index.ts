@@ -5,6 +5,7 @@ import { bureauRoutes } from './bureaus';
 import { tenantRoutes } from './tenants';
 import { employeeRoutes } from './employees';
 import { reportRoutes } from './reports';
+import { adminRoutes } from './admin';
 import { payRunTenantRoutes, payRunRoutes } from './pay-runs';
 
 /**
@@ -21,8 +22,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
   // Phase 4b — Employees
   await fastify.register(employeeRoutes, { prefix: '/api/v1/employees' });
 
-  // Admin reports (platform_admin only)
+  // Admin routes (platform_admin only)
   await fastify.register(reportRoutes, { prefix: '/api/v1/admin/reports' });
+  await fastify.register(adminRoutes,  { prefix: '/api/v1/admin' });
 
   // Phase 5 — Pay Run Engine
   await fastify.register(payRunTenantRoutes, { prefix: '/api/v1/tenants' });
